@@ -1,0 +1,93 @@
+before_script:
+  - apk --no-cache add python3 py3-pip
+
+stages:
+  - lint
+  - test
+  - document
+  - deploy
+
+flake8:
+  stage: lint
+  allow_failure: true
+  script:
+    - pip3 install flake8 flake8-junit-report
+    - retval=0
+    - flake8 --output-file flake8.txt foo/ || retval=$?
+    - flake8_junit flake8.txt flake8_junit.xml
+    - exit "$retval"
+  artifacts:
+    when: always
+    reports:
+      junit: flake8_junit.xml
+  tags:
+    - html
+
+tox:
+  stage: test
+  script:
+    - apk --no-cache add python py-pip python-dev
+    - pip3 install tox
+    - tox
+  artifacts:
+    when: always
+    reports:
+      junit: output.xml
+  tags:
+    - html
+
+# sphinx:
+#   stage: document
+#   dependencies:
+#     - tox
+#   script:
+#     - pip3 install sphinx
+#     - apk --no-cache add make
+#     - cd docs
+#     - make html
+#     - mv _build/html/ ../sphinx
+#   artifacts:
+#     paths:
+#       - sphinx
+#   tags:
+#     - html
+#   only:
+#     - master
+
+coverage:
+  stage: document
+  dependencies:
+    - tox
+  script:
+    - pip3 install -r test_requirements.txt
+    - pip3 install coverage
+    - coverage run --source hmm_torch -m pytest
+    - coverage html -d coverage
+    - coverage report
+  coverage: '/\d+\%\s*$/'
+  artifacts:
+    paths:
+      - coverage
+  tags:
+    - html
+
+pages:
+  stage: deploy
+  dependencies:
+    # - sphinx
+    - coverage
+  script:
+    # - mv sphinx public/
+    # - mv coverage public/coverage
+    - mv coverage public/
+  environment:
+    name: pages
+    url: https://git.hq-git.soartech.com/hmm_torch/
+  artifacts:
+    paths:
+      - public
+  tags: 
+    - html
+  only:
+    - master
+
