@@ -1,7 +1,7 @@
 before_script:
   - apk --no-cache add python3 py3-pip
   - pip3 install --upgrade pip
-  - pip3 install setuptools
+  - pip3 install --upgrade setuptools
 
 stages:
   - lint
