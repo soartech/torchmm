@@ -1,5 +1,4 @@
 pytest
 pytest-benchmark
-pytest-mypy
 coverage
 flake8
