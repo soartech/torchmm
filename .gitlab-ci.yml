@@ -26,8 +26,8 @@ flake8:
 tox:
   stage: test
   script:
+    - apk --no-cache add git
     - pip3 install --upgrade setuptools
-    - pip3 install --upgrade pbr
     - pip3 install tox
     - git log
     - tox
