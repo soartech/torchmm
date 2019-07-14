@@ -1,16 +1,9 @@
 import torch
 import numpy as np
-import pandas as pd
+# import pandas as pd
 
 from hmm_torch.discrete import HiddenMarkovModel
 from hmm_torch.utils import generate_HMM_observation
-
-
-def dptable(state_prob):
-    print(" ".join(("%8d" % i) for i in range(state_prob.shape[0])))
-    for i, prob in enumerate(state_prob.T):
-        print("%.7s: " % states[i] + " ".join("%.7s" %
-                                              ("%f" % p) for p in prob))
 
 
 def highlight_max(s):
@@ -37,20 +30,21 @@ def test_viterbi():
 
     obs_seq = np.array([0, 0, 1, 2, 2])
 
-    df_p0 = pd.DataFrame(p0, index=["Healthy", "Fever"], columns=["Prob"])
-    df_emi = pd.DataFrame(emi, index=["Normal", "Cold", "Dizzy"], columns=[
-                          "Healthy", "Fever"])
-    df_trans = pd.DataFrame(trans, index=["fromHealthy", "fromFever"], columns=[
-                            "toHealthy", "toFever"])
+    # df_p0 = pd.DataFrame(p0, index=["Healthy", "Fever"], columns=["Prob"])
+    # df_emi = pd.DataFrame(emi, index=["Normal", "Cold", "Dizzy"], columns=[
+    #                       "Healthy", "Fever"])
+    # df_trans = pd.DataFrame(trans, index=["fromHealthy", "fromFever"],
+    # columns=[ "toHealthy", "toFever"])
 
     model = HiddenMarkovModel(trans, emi, p0)
 
     states_seq, state_prob = model.viterbi_inference(obs_seq)
 
     print("Observation sequence: ", [obs[o] for o in obs_seq])
-    df = pd.DataFrame(torch.t(state_prob).cpu().numpy(),
-                      index=["Healthy", "Fever"])
-    df.style.apply(highlight_max, axis=0)
+
+    # df = pd.DataFrame(torch.t(state_prob).cpu().numpy(),
+    #                   index=["Healthy", "Fever"])
+    # df.style.apply(highlight_max, axis=0)
 
     print("Most likely States: ", [states[s.item()] for s in states_seq])
 
@@ -66,7 +60,7 @@ def test_forward_backward():
                       [0.3, 0.7]])
 
     states = {0: 'rain', 1: 'no_rain'}
-    obs = {0: 'umbrella', 1: 'no_umbrella'}
+    # obs = {0: 'umbrella', 1: 'no_umbrella'}
 
     obs_seq = np.array([1, 1, 0, 0, 0, 1])
 
@@ -98,7 +92,7 @@ def test_forward_backward():
         inferred_states = np.argmax(state_prob, axis=1)
         print()
         print(path)
-        dptable(state_prob)
+        # dptable(state_prob)
         print()
 
     print("="*60)
