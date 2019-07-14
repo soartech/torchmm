@@ -1,6 +1,5 @@
 before_script:
   - apk --no-cache add python3 py3-pip
-  - pip3 install --upgrade setuptools
 
 stages:
   - lint
@@ -27,8 +26,10 @@ flake8:
 tox:
   stage: test
   script:
-    - apk --no-cache add python py-pip python-dev
+    - pip3 install --upgrade setuptools
+    - pip3 install --upgrade pbr
     - pip3 install tox
+    - git log
     - tox
   artifacts:
     when: always
