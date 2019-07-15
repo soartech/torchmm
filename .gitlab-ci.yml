@@ -36,7 +36,7 @@ tox:
     - pip3 install -r test-requirements.txt
       #- pip3 install tox
       #- tox
-    - pytest
+    - python3 -m pytest
   artifacts:
     when: always
     reports:
