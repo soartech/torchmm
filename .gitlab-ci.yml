@@ -1,7 +1,7 @@
 before_script:
   - apk --no-cache add git libstdc++ g++ jpeg-dev zlib-dev libc6-compat
   - apk --no-cache add python3 py3-pip python3-dev
-  - apk --no-cache add py3-numpy py3-pandas
+  - apk --no-cache add py3-numpy py3-pandas@edge
   - export LIBRARY_PATH=/lib:/usr/lib
   - ln -s /usr/include/locale.h /usr/include/xlocale.h
   - pip3 install https://download.pytorch.org/whl/cpu/torch-1.1.0-cp37-cp37m-linux_x86_64.whl
