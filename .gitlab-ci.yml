@@ -2,26 +2,26 @@ before_script:
   - apk --no-cache add python3 py3-pip
 
 stages:
-  - lint
+#   - lint
   - test
   - document
   - deploy
 
-flake8:
-  stage: lint
-  allow_failure: true
-  script:
-    - pip3 install flake8 flake8-junit-report
-    - retval=0
-    - flake8 --output-file flake8.txt foo/ || retval=$?
-    - flake8_junit flake8.txt flake8_junit.xml
-    - exit "$retval"
-  artifacts:
-    when: always
-    reports:
-      junit: flake8_junit.xml
-  tags:
-    - html
+    # flake8:
+    #   stage: lint
+    #   allow_failure: true
+    #   script:
+    #     - pip3 install flake8 flake8-junit-report
+    #     - retval=0
+    #     - flake8 --output-file flake8.txt foo/ || retval=$?
+    #     - flake8_junit flake8.txt flake8_junit.xml
+    #     - exit "$retval"
+    #   artifacts:
+    #     when: always
+    #     reports:
+    #       junit: flake8_junit.xml
+    #   tags:
+    #     - html
 
 tox:
   stage: test
