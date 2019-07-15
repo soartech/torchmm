@@ -32,8 +32,11 @@ stages:
 tox:
   stage: test
   script:
-    - pip3 install tox
-    - tox
+    - pip3 install -r requirements.txt
+    - pip3 install -r test-requirements.txt
+      #- pip3 install tox
+      #- tox
+    - pytest
   artifacts:
     when: always
     reports:
