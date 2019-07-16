@@ -1,11 +1,19 @@
 before_script:
-  - apk --no-cache add git libstdc++ g++ jpeg-dev zlib-dev libc6-compat gcompat libgomp
-  - apk --no-cache add python3 py3-pip python3-dev
-  - apk --no-cache add py3-numpy
-  - export LIBRARY_PATH=/lib:/usr/lib
+  - apk --no-cache add git curl ca-certificates python3 py3-numpy py3-numpy-f2py \
+      freetype jpeg libpng libstdc++ libgomp graphviz font-noto py3-pip
+  - apk add --no-cache --virtual=.build-deps \
+      build-base linux-headers python3-dev git cmake jpeg-dev bash \
+      libffi-dev gfortran openblas-dev py-numpy-dev freetype-dev libpng-dev
+  - pip3 --no-cache-dir install --upgrade pip setuptools wheel
   - ln -s /usr/include/locale.h /usr/include/xlocale.h
-  - pip3 install https://download.pytorch.org/whl/cpu/torch-1.1.0-cp37-cp37m-linux_x86_64.whl
-  - pip3 install https://download.pytorch.org/whl/cpu/torchvision-0.3.0-cp37-cp37m-linux_x86_64.whl
+  - apk update
+  - apk upgrade
+  - git clone --recursive https://github.com/pytorch/pytorch
+  - cd pytorch
+  - python setup.py install
+  - git clone --recursive https://github.com/pytorch/vision
+  - cd vision
+  - python setup.py install
 
 stages:
 #   - lint
