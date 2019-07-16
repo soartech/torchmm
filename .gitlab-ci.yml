@@ -1,5 +1,5 @@
 before_script:
-  - apk --no-cache add git libstdc++ g++ jpeg-dev zlib-dev libc6-compat gcompat
+  - apk --no-cache add git libstdc++ g++ jpeg-dev zlib-dev libc6-compat gcompat libgomp
   - apk --no-cache add python3 py3-pip python3-dev
   - apk --no-cache add py3-numpy
   - export LIBRARY_PATH=/lib:/usr/lib
