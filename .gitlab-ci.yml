@@ -1,7 +1,7 @@
 before_script:
   - apk --no-cache add git curl ca-certificates python3 py3-numpy py3-numpy-f2py freetype jpeg libpng libstdc++ libgomp graphviz font-noto py3-pip
   - apk add --no-cache --virtual=.build-deps build-base linux-headers python3-dev git cmake jpeg-dev bash libffi-dev gfortran openblas-dev py-numpy-dev freetype-dev libpng-dev
-  - pip3 --no-cache-dir install --upgrade pip setuptools wheel
+  - pip3 --no-cache-dir install --upgrade pip setuptools wheel pyyaml
   - ln -s /usr/include/locale.h /usr/include/xlocale.h
   - apk update
   - apk upgrade
