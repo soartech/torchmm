@@ -5,13 +5,14 @@ before_script:
   - ln -s /usr/include/locale.h /usr/include/xlocale.h
   - apk update
   - apk upgrade
-  - cd ..
   - git clone --recursive https://github.com/pytorch/pytorch
   - cd pytorch
   - python3 setup.py install
   - git clone --recursive https://github.com/pytorch/vision
   - cd vision
   - python3 setup.py install
+  - cd ../../
+  - rm -rf pytorch
 
 stages:
 #   - lint
