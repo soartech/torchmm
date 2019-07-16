@@ -1,55 +1,42 @@
 before_script:
-  - apk --no-cache add git curl ca-certificates python3 py3-numpy py3-numpy-f2py freetype jpeg libpng libstdc++ libgomp graphviz font-noto py3-pip
-  - apk add --no-cache --virtual=.build-deps build-base linux-headers python3-dev git cmake jpeg-dev bash libffi-dev gfortran openblas-dev py-numpy-dev freetype-dev libpng-dev
-  - pip3 --no-cache-dir install --upgrade pip setuptools wheel pyyaml
-  - ln -s /usr/include/locale.h /usr/include/xlocale.h
-  - apk update
-  - apk upgrade
-  - git clone --recursive https://github.com/pytorch/pytorch
-  - cd pytorch
-  - python3 setup.py install
-  - git clone --recursive https://github.com/pytorch/vision
-  - cd vision
-  - python3 setup.py install
-  - cd ../../
-  - rm -rf pytorch
+  - apk --no-cache add git python3 py3-pip py3-numpy 
 
 stages:
-#   - lint
-  - test
-  - document
-  - deploy
+  - lint
+    #   - test
+    # - document
+    # - deploy
 
-    # flake8:
-    #   stage: lint
-    #   allow_failure: true
-    #   script:
-    #     - pip3 install flake8 flake8-junit-report
-    #     - retval=0
-    #     - flake8 --output-file flake8.txt foo/ || retval=$?
-    #     - flake8_junit flake8.txt flake8_junit.xml
-    #     - exit "$retval"
-    #   artifacts:
-    #     when: always
-    #     reports:
-    #       junit: flake8_junit.xml
-    #   tags:
-    #     - html
-
-pytest:
-  stage: test
+flake8:
+  stage: lint
+  allow_failure: true
   script:
-    - pip3 install -r requirements.txt
-    - pip3 install -r test-requirements.txt
-      #- pip3 install tox
-      #- tox
-    - python3 -m pytest
+    - pip3 install flake8 flake8-junit-report
+    - retval=0
+    - flake8 --output-file flake8.txt foo/ || retval=$?
+    - flake8_junit flake8.txt flake8_junit.xml
+    - exit "$retval"
   artifacts:
     when: always
     reports:
-      junit: output.xml
+      junit: flake8_junit.xml
   tags:
     - html
+
+      # pytest:
+      #   stage: test
+      #   script:
+      #     - pip3 install -r requirements.txt
+      #     - pip3 install -r test-requirements.txt
+      #       #- pip3 install tox
+      #       #- tox
+      #     - python3 -m pytest
+      #   artifacts:
+      #     when: always
+      #     reports:
+      #       junit: output.xml
+      #   tags:
+      #     - html
 
 # sphinx:
 #   stage: document
@@ -69,40 +56,40 @@ pytest:
 #   only:
 #     - master
 
-coverage:
-  stage: document
-  dependencies:
-    - pytest
-  script:
-    - pip3 install -r test_requirements.txt
-    - pip3 install coverage
-    - coverage run --source hmm_torch -m pytest
-    - coverage html -d coverage
-    - coverage report
-  coverage: '/\d+\%\s*$/'
-  artifacts:
-    paths:
-      - coverage
-  tags:
-    - html
+      # coverage:
+      #   stage: document
+      #   dependencies:
+      #     - pytest
+      #   script:
+      #     - pip3 install -r test_requirements.txt
+      #     - pip3 install coverage
+      #     - coverage run --source hmm_torch -m pytest
+      #     - coverage html -d coverage
+      #     - coverage report
+      #   coverage: '/\d+\%\s*$/'
+      #   artifacts:
+      #     paths:
+      #       - coverage
+      #   tags:
+      #     - html
 
-pages:
-  stage: deploy
-  dependencies:
-    # - sphinx
-    - coverage
-  script:
-    # - mv sphinx public/
-    # - mv coverage public/coverage
-    - mv coverage public/
-  environment:
-    name: pages
-    url: https://git.hq-git.soartech.com/hmm_torch/
-  artifacts:
-    paths:
-      - public
-  tags: 
-    - html
-  only:
-    - master
+      # pages:
+      #   stage: deploy
+      #   dependencies:
+      #     # - sphinx
+      #     - coverage
+      #   script:
+      #     # - mv sphinx public/
+      #     # - mv coverage public/coverage
+      #     - mv coverage public/
+      #   environment:
+      #     name: pages
+      #     url: https://git.hq-git.soartech.com/hmm_torch/
+      #   artifacts:
+      #     paths:
+      #       - public
+      #   tags: 
+      #     - html
+      #   only:
+      #     - master
 
