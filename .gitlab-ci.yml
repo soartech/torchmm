@@ -41,7 +41,7 @@ flake8:
 sphinx:
   stage: document
   dependencies:
-    - pytest
+    - flake8
   script:
     - pip3 install sphinx
     - apk --no-cache add make
