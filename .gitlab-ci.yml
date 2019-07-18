@@ -4,8 +4,8 @@ before_script:
 stages:
   - lint
     #   - test
-    # - document
-    # - deploy
+  - document
+  - deploy
 
 flake8:
   stage: lint
@@ -38,23 +38,23 @@ flake8:
       #   tags:
       #     - html
 
-# sphinx:
-#   stage: document
-#   dependencies:
-#     - pytest
-#   script:
-#     - pip3 install sphinx
-#     - apk --no-cache add make
-#     - cd docs
-#     - make html
-#     - mv _build/html/ ../sphinx
-#   artifacts:
-#     paths:
-#       - sphinx
-#   tags:
-#     - html
-#   only:
-#     - master
+sphinx:
+  stage: document
+  dependencies:
+    - pytest
+  script:
+    - pip3 install sphinx
+    - apk --no-cache add make
+    - cd docs
+    - make html
+    - mv _build/html/ ../sphinx
+  artifacts:
+    paths:
+      - sphinx
+  tags:
+    - html
+  only:
+    - master
 
       # coverage:
       #   stage: document
@@ -73,23 +73,21 @@ flake8:
       #   tags:
       #     - html
 
-      # pages:
-      #   stage: deploy
-      #   dependencies:
-      #     # - sphinx
-      #     - coverage
-      #   script:
-      #     # - mv sphinx public/
-      #     # - mv coverage public/coverage
-      #     - mv coverage public/
-      #   environment:
-      #     name: pages
-      #     url: https://git.hq-git.soartech.com/hmm_torch/
-      #   artifacts:
-      #     paths:
-      #       - public
-      #   tags: 
-      #     - html
-      #   only:
-      #     - master
-
+pages:
+  stage: deploy
+  dependencies:
+    - sphinx
+      # - coverage
+  script:
+    - mv sphinx public/
+    # - mv coverage public/coverage
+  environment:
+    name: pages
+    url: https://git.hq-git.soartech.com/TorCHmM/
+  artifacts:
+    paths:
+      - public
+  tags: 
+    - html
+  only:
+    - master
