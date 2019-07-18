@@ -1,3 +1,9 @@
+.. image:: https://hq-git.soartech.com/chris.maclellan/TorCHmM/raw/master/docs/logo/TorCHmm.png
+   :height: 64 px
+   :width: 64 px
+   :alt: TorCHmM Logo
+   :align: left
+
 TorCHmM
 =======
 
