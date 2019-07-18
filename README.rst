@@ -10,3 +10,5 @@ TorCHmM
      :alt: Coverage Report
 
 A PyTorch implementation of various hidden Markov model inference and learning algorithms.
+
+Documentation: https://chris.maclellan.hq-git.soartech.com/TorCHmM
