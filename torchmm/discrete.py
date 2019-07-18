@@ -1,13 +1,13 @@
+import numpy as np
 import torch
 
 
 class HiddenMarkovModel(object):
     """
     Hidden Markov self Class
+
     Parameters:
     -----------
-
-    - S: Number of states.
     - T: numpy.array Transition matrix of size S by S
          stores probability from state i to state j.
     - E: numpy.array Emission matrix of size S by N (number of observations)
@@ -16,6 +16,26 @@ class HiddenMarkovModel(object):
     """
 
     def __init__(self, T, E, T0, epsilon=0.001, maxStep=10):
+
+        if np.any(np.sum(T, axis=1) != 1):
+            raise ValueError("Sum of T columns exceed 1.0")
+        if np.any(np.sum(E, axis=0) != 1):
+            raise ValueError("Sum of E0 columns exceed 1.0")
+        if np.sum(T0) != 1:
+            raise ValueError("Sum of T0 exceeds 1.0")
+
+        if T.shape[0] != T.shape[1]:
+            raise ValueError("T must be a square matrix")
+        if T.shape[0] != E.shape[1]:
+            raise ValueError("E has incorrect number of states")
+        if T.shape[0] != T0.shape[0]:
+            raise ValueError("T0 has incorrect number of states")
+
+        if epsilon <= 0:
+            raise ValueError('Invalid value for epsilon, must be > 0')
+        if maxStep <= 0:
+            raise ValueError('Invalid value for maxStep, must be > 0')
+
         # Max number of iteration
         self.maxStep = maxStep
         # convergence criteria
@@ -24,13 +44,55 @@ class HiddenMarkovModel(object):
         self.S = T.shape[0]
         # Number of possible observations
         self.Obs = E.shape[0]
+
         self.prob_state_1 = []
+
         # Emission probability
         self.E = torch.tensor(E)
         # Transition matrix
         self.T = torch.tensor(T)
         # Initial state vector
         self.T0 = torch.tensor(T0)
+
+    def num_states(self):
+        """
+        Number of states.
+        """
+        return self.S
+
+    def num_emissions(self):
+        """
+        Number of possible emissions.
+        """
+        return self.Obs
+
+    def num_params(self):
+        """
+        The number of free parameters in the model.
+        """
+        init_params = self.T0.shape[0] - 1
+        transition_params = self.T.shape[0] * (self.T.shape[1] - 1)
+        emission_params = self.T.shape[0] * (self.E.shape[0] - 1)
+        return init_params + transition_params + emission_params
+
+    def sample(self, num_obs):
+        """
+        Draws a sample from the HMM of length num_obs.
+
+        TODO:
+            - refactor to use arbitrary emission PDF
+        """
+        def drawFrom(probs):
+            return np.where(np.random.multinomial(1, probs) == 1)[0][0]
+
+        obs = np.zeros(num_obs)
+        states = np.zeros(num_obs)
+        states[0] = drawFrom(self.T0)
+        obs[0] = drawFrom(self.E[:, int(states[0])])
+        for t in range(1, num_obs):
+            states[t] = drawFrom(self.T[int(states[t-1]), :])
+            obs[t] = drawFrom(self.E[:, int(states[t])])
+        return np.int64(obs), states
 
     def initialize_viterbi_variables(self, shape):
         pathStates = torch.zeros(shape, dtype=torch.float64)
@@ -41,23 +103,53 @@ class HiddenMarkovModel(object):
     def belief_propagation(self, scores):
         return scores.view(-1, 1) + torch.log(self.T)
 
-    def viterbi_inference(self, x):  # x: observing sequence
+    def emission_ll(self, x):
+        """
+        Log likelihood of emissions for each state.
+
+        Returns a tensor of shape (num samples in x, num states).
+        """
+        return torch.log(self.E[x])
+
+    def viterbi_inference(self, x):
+        """
+        Compute the most likely states given the current model and a sequence
+        of observations (x).
+
+        Returns the most likely state numbers and log likelihood of each state.
+        """
+
         self.N = len(x)
         shape = [self.N, self.S]
+
         # Init_viterbi_variables
         pathStates, pathScores, states_seq = self.initialize_viterbi_variables(
             shape)
+
+        print(pathScores.shape)
+
         # log probability of emission sequence
-        obs_prob_full = torch.log(self.E[x])
+        obs_ll_full = self.emission_ll(x)
+
         # initialize with state starting log-priors
-        pathScores[0] = torch.log(self.T0) + obs_prob_full[0]
-        for step, obs_prob in enumerate(obs_prob_full[1:]):
+        pathScores[0] = torch.log(self.T0) + obs_ll_full[0]
+
+        for step, obs_prob in enumerate(obs_ll_full[1:]):
+            print(step)
+            print(pathScores[step, :])
+            print(pathScores[step, :].view(-1, 1))
             # propagate state belief
             belief = self.belief_propagation(pathScores[step, :])
+            print(belief)
+            # assert False
+
+            values, indices = belief.max(0)
+
             # the inferred state by maximizing global function
             pathStates[step + 1] = torch.argmax(belief, 0)
             # and update state and score matrices
             pathScores[step + 1] = torch.max(belief, 0)[0] + obs_prob
+
         # infer most likely last state
         states_seq[self.N - 1] = torch.argmax(pathScores[self.N-1, :], 0)
         for step in range(self.N - 1, 0, -1):
@@ -65,8 +157,9 @@ class HiddenMarkovModel(object):
             state = states_seq[step]
             state_prob = pathStates[step][state]
             states_seq[step - 1] = state_prob
+
         # turn scores back to probabilities
-        return states_seq, torch.exp(pathScores)
+        return states_seq, pathScores
 
     def initialize_forw_back_variables(self, shape):
         self.forward = torch.zeros(shape, dtype=torch.float64)
@@ -117,7 +210,7 @@ class HiddenMarkovModel(object):
 
     def forward_backward(self, obs_prob_seq):
         """
-        runs forward backward algorithm on observation sequence
+        Runs forward backward algorithm on observation sequence
         Arguments
         ---------
         - obs_prob_seq : matrix of size N by S, where N is number of timesteps

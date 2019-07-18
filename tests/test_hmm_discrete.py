@@ -1,17 +1,94 @@
+import pytest
 import torch
 import numpy as np
 # import pandas as pd
 
-from hmm_torch.discrete import HiddenMarkovModel
-from hmm_torch.utils import generate_HMM_observation
+from torchmm.discrete import HiddenMarkovModel
 
 
-def highlight_max(s):
-    '''
-    highlight the maximum in a Series yellow.
-    '''
-    is_max = s == s.max()
-    return ['background-color: yellow' if v else '' for v in is_max]
+def test_init():
+    good_pi = np.array([1.0, 0.0])
+    good_T = np.array([[1.0, 0.0], [0.0, 1.0]])
+    good_E = np.array([[1.0, 0.0], [0.0, 1.0]])
+
+    bad1_pi = np.array([1.0, 1.0])
+    bad1_T = np.array([[1.0, 1.0], [1.0, 1.0]])
+    bad1_E = np.array([[1.0, 1.0], [1.0, 1.0]])
+
+    bad2_pi = np.array([1.0])
+    bad2_T = np.array([[1.0], [1.0]])
+    bad2_E = np.array([[1.0], [1.0]])
+
+    HiddenMarkovModel(good_T, good_E, good_pi)
+
+    with pytest.raises(ValueError):
+        HiddenMarkovModel(bad1_T, good_E, good_pi)
+    with pytest.raises(ValueError):
+        HiddenMarkovModel(good_T, bad1_E, good_pi)
+    with pytest.raises(ValueError):
+        HiddenMarkovModel(good_T, good_E, bad1_pi)
+
+    with pytest.raises(ValueError):
+        HiddenMarkovModel(bad2_T, good_E, good_pi)
+    with pytest.raises(ValueError):
+        HiddenMarkovModel(good_T, bad2_E, good_pi)
+    with pytest.raises(ValueError):
+        HiddenMarkovModel(good_T, good_E, bad2_pi)
+
+    with pytest.raises(ValueError):
+        HiddenMarkovModel(good_T, good_E, good_pi, epsilon=0)
+    with pytest.raises(ValueError):
+        HiddenMarkovModel(good_T, good_E, good_pi, maxStep=0)
+
+
+def test_sample():
+
+    True_pi = np.array([1.0, 0.0])
+
+    True_T = np.array([[1.0, 0.0],
+                       [0.0, 1.0]])
+
+    True_E = np.array([[1.0, 0.0],
+                       [0.0, 1.0]])
+
+    true_model = HiddenMarkovModel(True_T, True_E, True_pi)
+    obs_seq, states = true_model.sample(10)
+
+    assert len(obs_seq) == 10
+    assert len(states) == 10
+    assert 1 not in obs_seq
+    assert 1 not in states
+
+    True_pi = np.array([0.5, 0.5])
+
+    True_T = np.array([[0.5, 0.5],
+                       [0.5, 0.5]])
+
+    True_E = np.array([[1.0, 0.0],
+                       [0.0, 1.0]])
+
+    true_model = HiddenMarkovModel(True_T, True_E, True_pi)
+    obs_seq, states = true_model.sample(20)
+
+    assert len(obs_seq) == 20
+    assert len(states) == 20
+    assert 1 in obs_seq and 0 in obs_seq
+    assert 1 in states and 0 in states
+
+    True_pi = np.array([0.5, 0.5])
+
+    True_T = np.array([[0.9, 0.1],
+                       [0.5, 0.5]])
+
+    True_E = np.array([[1.0, 0.0],
+                       [0.0, 1.0]])
+
+    true_model = HiddenMarkovModel(True_T, True_E, True_pi)
+    obs_seq, states = true_model.sample(20)
+
+    assert len(obs_seq) == 20
+    assert len(states) == 20
+    assert (states == 0).sum() > (states == 1).sum()
 
 
 def test_viterbi():
@@ -27,7 +104,14 @@ def test_viterbi():
     model = HiddenMarkovModel(trans, emi, p0)
 
     obs_seq = np.array([0, 0, 1, 2, 2])
-    states_seq, state_prob = model.viterbi_inference(obs_seq)
+    states_seq, states_ll = model.viterbi_inference(obs_seq)
+
+    print(states_seq)
+    print(states_ll)
+    probs = torch.exp(states_ll).data.numpy()
+    print(np.sum(probs, 0))
+    print(np.sum(probs, 1))
+    # assert False
 
     most_likely_states = [states[s.item()] for s in states_seq]
     assert most_likely_states == ['Healthy', 'Healthy', 'Healthy', 'Fever',
@@ -72,7 +156,10 @@ def test_forward_backward():
         # print(state_prob)
         # print()
 
-    assert states[inferred_states[-1]] == 'no_rain'
+    inferred_states = [states[s] for s in inferred_states]
+    print(inferred_states)
+    assert inferred_states == ['no_rain', 'no_rain', 'rain', 'rain', 'rain',
+                               'no_rain']
 
 
 def test_baum_welch():
@@ -82,13 +169,13 @@ def test_baum_welch():
     True_T = np.array([[0.85, 0.15],
                        [0.12, 0.88]])
 
-    True_E = np.array([[0.8, 0.0],
-                       [0.1, 0.0],
-                       [0.1, 1.0]])
+    True_E = np.array([[0.95, 0.05],
+                       [0.05, 0.95]])
 
-    obs_seq, states = generate_HMM_observation(200, True_pi, True_T, True_E)
+    true_model = HiddenMarkovModel(True_T, True_E, True_pi)
+    obs_seq, states = true_model.sample(200)
 
-    print("First 10 Obersvations:  ", obs_seq[:10])
+    print("First 10 Obersvations:  ", obs_seq[:100])
     print("First 10 Hidden States: ", states[:10])
 
     init_pi = np.array([0.5, 0.5])
@@ -96,9 +183,8 @@ def test_baum_welch():
     init_T = np.array([[0.5, 0.5],
                        [0.5, 0.5]])
 
-    init_E = np.array([[0.3, 0.2],
-                       [0.3, 0.5],
-                       [0.4, 0.3]])
+    init_E = np.array([[0.6, 0.3],
+                       [0.4, 0.7]])
 
     model = HiddenMarkovModel(init_T, init_E, init_pi,
                               epsilon=0.0001, maxStep=100)
@@ -118,4 +204,6 @@ def test_baum_welch():
                               range(len(model.prob_state_1))])
 
     pred = (1 - state_summary[-2]) > 0.5
+    accuracy = np.mean(pred == states)
     print("Accuracy: ", np.mean(pred == states))
+    assert accuracy > 0.9 or accuracy < 0.1
