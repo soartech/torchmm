@@ -2,6 +2,7 @@ import pytest
 import torch
 import numpy as np
 # import pandas as pd
+from scipy.special import logsumexp
 
 from torchmm.discrete import HiddenMarkovModel
 
@@ -91,6 +92,37 @@ def test_sample():
     assert (states == 0).sum() > (states == 1).sum()
 
 
+def test_belief_propagation():
+    n_states = 4
+    n_obs = 3
+
+    T0 = np.random.random([n_states, 1])
+    T0 /= np.sum(T0)
+
+    T = np.random.random([n_states, n_states])
+    T = T / T.sum(axis=1)[:, np.newaxis]
+    E = np.random.random([n_obs, n_states])
+    E = E / E.sum(axis=0)[np.newaxis, :]
+
+    # T0 = np.array([0.5, 0.5])
+    # T = np.array([[1, 0], [0, 1]])
+    # E = np.array([[1, 0], [0, 1]])
+
+    model = HiddenMarkovModel(T, E, T0)
+
+    # compute max path from each node to each node
+    # will give a matrix, row is the source col is the dest
+    res = np.array([np.log(T0[i] * T[i, :]) for i in range(len(T0))])
+
+    T0_t = torch.tensor(T0)
+    log_T0 = torch.log(T0_t)
+    max_b, _ = model.belief_max(log_T0)
+    assert np.allclose(res.max(0), max_b.data.numpy())
+
+    sum_b = model.belief_sum(log_T0)
+    assert np.allclose(logsumexp(res, 0), sum_b.data.numpy())
+
+
 def test_viterbi():
     states = {0: 'Healthy', 1: 'Fever'}
     # obs = {0: 'normal', 1: 'cold', 2: 'dizzy'}
@@ -106,16 +138,87 @@ def test_viterbi():
     obs_seq = np.array([0, 0, 1, 2, 2])
     states_seq, states_ll = model.viterbi_inference(obs_seq)
 
-    print(states_seq)
-    print(states_ll)
-    probs = torch.exp(states_ll).data.numpy()
-    print(np.sum(probs, 0))
-    print(np.sum(probs, 1))
-    # assert False
-
     most_likely_states = [states[s.item()] for s in states_seq]
     assert most_likely_states == ['Healthy', 'Healthy', 'Healthy', 'Fever',
                                   'Fever']
+
+
+def test_viterbi_aima_umbrella_example():
+    """
+    This example was taken from AI a Modern Approach
+
+    The state sequence comes from figure 15.5(b) on page 577 of the third
+    edition. The correct values were manually compared to the normalized values
+    from the figure 15.5(b).
+    """
+
+    states = {0: 'No Rain', 1: 'Rain'}
+    # obs = {0: 'No Umbrella', 1: 'Umbrella'}
+
+    p0 = np.array([0.5, 0.5])
+    emi = np.array([[0.8, 0.1],
+                    [0.2, 0.9]])
+    trans = np.array([[0.7, 0.3],
+                      [0.3, 0.7]])
+    model = HiddenMarkovModel(trans, emi, p0)
+
+    obs_seq = np.array([1, 1, 0, 1, 1])
+    states_seq, path_ll = model.viterbi_inference(obs_seq)
+
+    most_likely_states = [states[s.item()] for s in states_seq]
+    assert most_likely_states == ['Rain', 'Rain', 'No Rain', 'Rain', 'Rain']
+
+    probs = torch.exp(path_ll).data.numpy()
+    normalized = probs / probs.sum(axis=1)[:, np.newaxis]
+
+    correct = np.array([[0.18181818, 0.81818182],
+                        [0.08695652, 0.91304348],
+                        [0.77419355, 0.22580645],
+                        [0.34146341, 0.65853659],
+                        [0.10332103, 0.89667897]])
+
+    assert np.allclose(normalized, correct)
+
+
+def test_fb_inference():
+
+    p0 = np.array([0.5, 0.5])
+    emi = np.array([[0.8, 0.1],
+                    [0.2, 0.9]])
+    trans = np.array([[0.7, 0.3],
+                      [0.3, 0.7]])
+
+    model = HiddenMarkovModel(trans, emi, p0)
+    obs_seq = np.array([1, 1])
+
+    # Original approach
+    model.N = len(obs_seq)
+    shape = [model.N, model.S]
+
+    model.initialize_forw_back_variables(shape)
+    obs_prob_seq = model.E[obs_seq]
+    model.forward_backward(obs_prob_seq)
+    posterior = model.forward * model.backward
+
+    # marginal per timestep
+    marginal = torch.sum(posterior, 1)
+    # Normalize porsterior into probabilities
+    posterior = posterior / marginal.view(-1, 1)
+    print("ORIGINAL")
+    print(posterior)
+
+    # New approach
+    posterior_ll = model.forward_backward_inference(obs_seq)
+    posterior_prob = torch.exp(posterior_ll)
+    m = torch.sum(posterior_prob, 1)
+    posterior_prob = posterior_prob / m.view(-1, 1)
+    print("NEW")
+    print(posterior_prob)
+
+    first_correct = np.array([[0.11664296, 0.88335704]])
+    assert np.allclose(posterior.data.numpy()[0], first_correct)
+    assert np.allclose(posterior_prob.data.numpy()[0], first_correct)
+    assert np.allclose(posterior.data.numpy(), posterior_prob.data.numpy())
 
 
 def test_forward_backward():
@@ -173,9 +276,9 @@ def test_baum_welch():
                        [0.05, 0.95]])
 
     true_model = HiddenMarkovModel(True_T, True_E, True_pi)
-    obs_seq, states = true_model.sample(200)
+    obs_seq, states = true_model.sample(150)
 
-    print("First 10 Obersvations:  ", obs_seq[:100])
+    print("First 10 Obersvations:  ", obs_seq[:10])
     print("First 10 Hidden States: ", states[:10])
 
     init_pi = np.array([0.5, 0.5])
@@ -200,10 +303,15 @@ def test_baum_welch():
     print("Reached Convergence: ")
     print(converge)
 
-    state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
-                              range(len(model.prob_state_1))])
+    states_seq, path_ll = model.viterbi_inference(obs_seq)
 
-    pred = (1 - state_summary[-2]) > 0.5
+    # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
+    #                           range(len(model.prob_state_1))])
+
+    # pred = (1 - state_summary[-2]) > 0.5
+    pred = states_seq.data.numpy()
+    print(pred)
+    print(states)
     accuracy = np.mean(pred == states)
-    print("Accuracy: ", np.mean(pred == states))
-    assert accuracy > 0.9 or accuracy < 0.1
+    print("Accuracy: ", accuracy)
+    assert accuracy >= 0.9 or accuracy <= 0.1
