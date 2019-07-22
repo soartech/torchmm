@@ -136,6 +136,7 @@ def test_viterbi():
     model = HiddenMarkovModel(trans, emi, p0)
 
     obs_seq = np.array([0, 0, 1, 2, 2])
+    model.initialize_viterbi(obs_seq)
     states_seq, states_ll = model.viterbi_inference(obs_seq)
 
     most_likely_states = [states[s.item()] for s in states_seq]
@@ -163,6 +164,7 @@ def test_viterbi_aima_umbrella_example():
     model = HiddenMarkovModel(trans, emi, p0)
 
     obs_seq = np.array([1, 1, 0, 1, 1])
+    model.initialize_viterbi(obs_seq)
     states_seq, path_ll = model.viterbi_inference(obs_seq)
 
     most_likely_states = [states[s.item()] for s in states_seq]
@@ -192,6 +194,8 @@ def test_fb_inference():
     obs_seq = np.array([1, 1])
 
     # New approach
+    model.initialize_forw_back_variables(obs_seq)
+    model.obs_ll_full = model.emission_ll(obs_seq)
     posterior_ll = model.forward_backward_inference(obs_seq)
     posterior_prob = torch.exp(posterior_ll)
     m = torch.sum(posterior_prob, 1)
@@ -228,7 +232,7 @@ def test_baum_welch():
     model = HiddenMarkovModel(init_T, init_E, init_pi,
                               epsilon=0.1, maxStep=100)
 
-    trans0, transition, emission, converge = model.Baum_Welch_EM(obs_seq)
+    trans0, transition, emission, converge = model.baum_welch(obs_seq)
 
     # Not enough samples (only 1) to test
     # assert np.allclose(trans0.data.numpy(), True_pi)
@@ -248,6 +252,69 @@ def test_baum_welch():
 
     assert converge
 
+    model.initialize_viterbi(obs_seq)
+    states_seq, path_ll = model.viterbi_inference(obs_seq)
+
+    # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
+    #                           range(len(model.prob_state_1))])
+
+    # pred = (1 - state_summary[-2]) > 0.5
+    pred = states_seq.data.numpy()
+    print(pred)
+    print(states)
+    accuracy = np.mean(pred == states)
+    print("Accuracy: ", accuracy)
+    assert accuracy >= 0.9 or accuracy <= 0.1
+
+
+def test_viterbi_training():
+
+    True_pi = np.array([0.5, 0.5])
+
+    True_T = np.array([[0.85, 0.15],
+                       [0.12, 0.88]])
+
+    True_E = np.array([[0.95, 0.05],
+                       [0.05, 0.95]])
+
+    true_model = HiddenMarkovModel(True_T, True_E, True_pi)
+    obs_seq, states = true_model.sample(500)
+
+    print("First 10 Obersvations:  ", obs_seq[:10])
+    print("First 10 Hidden States: ", states[:10])
+
+    init_pi = np.array([0.5, 0.5])
+
+    init_T = np.array([[0.6, 0.4],
+                       [0.3, 0.7]])
+
+    init_E = np.array([[0.6, 0.3],
+                       [0.4, 0.7]])
+
+    model = HiddenMarkovModel(init_T, init_E, init_pi,
+                              epsilon=0.1, maxStep=10)
+
+    trans0, transition, emission, converge = model.viterbi_training(obs_seq)
+
+    # Not enough samples (only 1) to test
+    # assert np.allclose(trans0.data.numpy(), True_pi)
+    print("Pi Matrix: ")
+    print(trans0.exp())
+
+    print("Transition Matrix: ")
+    print(transition.exp())
+    # assert np.allclose(transition.exp().data.numpy(), True_T, atol=0.1)
+    print()
+    print("Emission Matrix: ")
+    print(emission.exp())
+    # assert np.allclose(emission.exp().data.numpy(), True_E, atol=0.1)
+    print()
+    print("Reached Convergence: ")
+    print(converge)
+
+    assert converge
+
+    model.initialize_viterbi(obs_seq)
     states_seq, path_ll = model.viterbi_inference(obs_seq)
 
     # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in

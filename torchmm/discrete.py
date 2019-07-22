@@ -125,6 +125,15 @@ class HiddenMarkovModel(object):
         """
         return self.log_E[x]
 
+    def initialize_viterbi(self, x):
+        N = len(x)
+        shape = [N, self.S]
+
+        # Init_viterbi_variables
+        self.path_states = torch.zeros(shape, dtype=torch.float64)
+        self.path_scores = torch.zeros_like(self.path_states)
+        self.states_seq = torch.zeros([shape[0]], dtype=torch.int64)
+
     def viterbi_inference(self, x):
         """
         Compute the most likely states given the current model and a sequence
@@ -133,69 +142,78 @@ class HiddenMarkovModel(object):
         Returns the most likely state numbers and path score for each state.
         """
         N = len(x)
-        shape = [N, self.S]
-
-        # Init_viterbi_variables
-        path_states = torch.zeros(shape, dtype=torch.float64)
-        path_scores = torch.zeros_like(path_states)
-        states_seq = torch.zeros([shape[0]], dtype=torch.int64)
 
         # log probability of emission sequence
         obs_ll_full = self.emission_ll(x)
 
         # initialize with state starting log-priors
-        path_scores[0] = self.log_T0 + obs_ll_full[0]
+        self.path_scores[0] = self.log_T0 + obs_ll_full[0]
 
         for step, obs_prob in enumerate(obs_ll_full[1:]):
             # propagate state belief
-            max_vals, max_indices = self.belief_max(path_scores[step, :])
+            max_vals, max_indices = self.belief_max(self.path_scores[step, :])
 
             # the inferred state by maximizing global function
-            path_states[step + 1] = max_indices
+            self.path_states[step + 1] = max_indices
 
             # and update state and score matrices
-            path_scores[step + 1] = max_vals + obs_prob
+            self.path_scores[step + 1] = max_vals + obs_prob
 
         # infer most likely last state
-        states_seq[N-1] = torch.argmax(path_scores[N-1, :], 0)
+        self.states_seq[N-1] = torch.argmax(self.path_scores[N-1, :], 0)
         for step in range(N-1, 0, -1):
             # for every timestep retrieve inferred state
-            state = states_seq[step]
-            state_prob = path_states[step][state]
-            states_seq[step - 1] = state_prob
+            state = self.states_seq[step]
+            state_prob = self.path_states[step][state]
+            self.states_seq[step - 1] = state_prob
 
-        return states_seq, path_scores
+        return self.states_seq, self.path_scores
 
-    def forward_backward_inference(self, x):
+    def forward(self, x):
         """
-        Computes the expected probability of each state for each time.
-        Returns the posterior over all states.
+        Computes the forward values.
         """
-        shape = [len(x), self.S]
-
-        # Init
-        self.forward_ll = torch.zeros(shape, dtype=torch.float64)
-        self.backward_ll = torch.zeros_like(self.forward_ll)
-        self.obs_ll_full = self.emission_ll(x)
-
-        # Forward
         self.forward_ll[0] = self.log_T0 + self.obs_ll_full[0]
         for step, obs_ll in enumerate(self.obs_ll_full[1:]):
             self.forward_ll[step+1] = (
                 self.belief_sum(self.forward_ll[step, :]) + obs_ll)
 
-        # Backward
+    def backward(self, x):
+        """
+        Computes the backward values.
+        """
         self.backward_ll[0] = torch.ones([self.S], dtype=torch.float64)
         for step, obs_prob in enumerate(self.obs_ll_full.flip([0, 1])[:-1]):
             self.backward_ll[step+1] = self.belief_sum(
                 self.backward_ll[step, :] + obs_prob)
         self.backward_ll = self.backward_ll.flip([0, 1])
+
+    def forward_backward_inference(self, x):
+        """
+        Computes the expected probability of each state for each time.
+        Returns the posterior over all states.
+
+        Assumes the following have been initalized:
+            - self.forward_ll
+            - self.backward_ll
+            - self.posterior_ll
+            - self.obs_ll_full
+        """
+        # Forward
+        self.forward(x)
+
+        # Backward
+        self.backward(x)
+
+        # Posterior
         self.posterior_ll = self.forward_ll + self.backward_ll
 
         # Return posterior
         return self.posterior_ll
 
-    def initialize_forw_back_variables(self, shape):
+    def initialize_forw_back_variables(self, obs_seq):
+        N = len(obs_seq)
+        shape = [N, self.S]
         self.forward_ll = torch.zeros(shape, dtype=torch.float64)
         self.backward_ll = torch.zeros_like(self.forward_ll)
         self.posterior_ll = torch.zeros_like(self.forward_ll)
@@ -210,7 +228,6 @@ class HiddenMarkovModel(object):
         Great reference: https://web.stanford.edu/~jurafsky/slp3/A.pdf
         """
         N = len(x)
-        obs_ll_full = self.emission_ll(x)
 
         # Compute T0, using normalized forward.
         log_T0_new = (self.forward_ll[0] -
@@ -219,21 +236,15 @@ class HiddenMarkovModel(object):
         # Compute expected transitions
         M_ll = (self.forward_ll[:-1].unsqueeze(2).expand(-1, -1, 2) +
                 self.log_T.expand(N-1, -1, -1) +
-                obs_ll_full[1:].unsqueeze(2).expand(-1, -1, 2) +
+                self.obs_ll_full[1:].unsqueeze(2).expand(-1, -1, 2) +
                 self.backward_ll[1:].unsqueeze(2).expand(-1, -1, 2))
 
         denom = self.posterior_ll[:-1].logsumexp(1)
         M_ll -= denom.unsqueeze(1).unsqueeze(2).expand(-1, self.S, self.S)
 
-        # Estimate new transition matrix
-        print(torch.logsumexp(M_ll, 0).shape)
-        print(torch.logsumexp(M_ll, (0, 2)).shape)
-
+        # Update log_T
         log_T_new = (torch.logsumexp(M_ll, 0) -
                      torch.logsumexp(M_ll, (0, 2)).view(-1, 1))
-
-        print(torch.exp(log_T0_new))
-        print(torch.exp(log_T_new))
 
         return log_T0_new, log_T_new
 
@@ -267,28 +278,14 @@ class HiddenMarkovModel(object):
         return (len(self.ll_history) == 2 and self.ll_history[-2] -
                 self.ll_history[-1] < self.epsilon)
 
-    # def check_convergence(self, new_log_T0, new_log_transition,
-    #                       new_log_emission):
-    #     delta_T0 = (torch.max(torch.abs(self.log_T0 - new_log_T0)).item() <
-    #                 self.epsilon)
-    #     delta_T = (torch.max(torch.abs(self.log_T -
-    #     new_log_transition)).item() < self.epsilon)
-    #     delta_E = (torch.max(torch.abs(self.log_E - new_log_emission)).item()
-    #                < self.epsilon)
-    #     print(delta_T0, delta_T, delta_E)
-    #     return delta_T0 and delta_T and delta_E
-
     def expectation_maximization_step(self, obs_seq):
 
+        self.obs_ll_full = self.emission_ll(obs_seq)
         self.forward_backward_inference(obs_seq)
         self.ll_history.append(self.forward_ll[-1].sum())
-        print('LL: ', self.ll_history[-1])
 
         log_T0_new, log_T_new = self.re_estimate_transition_ll(obs_seq)
         log_E_new = self.re_estimate_emission_ll(obs_seq)
-
-        # converged = self.check_convergence(
-        #     log_T0_new, log_T_new, log_E_new)
 
         self.log_T0 = log_T0_new
         self.log_E = log_E_new
@@ -296,15 +293,63 @@ class HiddenMarkovModel(object):
 
         return self.converged
 
-    def Baum_Welch_EM(self, obs_seq):
-        # length of observed sequence
-        N = len(obs_seq)
+    def viterbi_training_step(self, obs_seq):
 
-        # shape of Variables
-        shape = [N, self.S]
+        # for convergence testing
+        self.obs_ll_full = self.emission_ll(obs_seq)
+        self.forward(obs_seq)
+        self.ll_history.append(self.forward_ll[-1].sum())
+
+        # do the updating
+        states, _ = self.viterbi_inference(obs_seq)
+
+        # start prob
+        self.log_T0 = torch.log(torch.zeros_like(self.log_T0))
+        self.log_T0[states[0]] = 0
+
+        # transition
+        transition_counts = torch.zeros_like(self.log_T)
+        for i, s in enumerate(states[:-1]):
+            transition_counts[s, states[i+1]] += 1
+        self.log_T = torch.log(transition_counts /
+                               transition_counts.sum(1).view(-1, 1))
+
+        # emission
+        emit_counts = torch.zeros_like(self.log_E)
+        for i, s in enumerate(states):
+            emit_counts[obs_seq[i], s] += 1
+        self.log_E = torch.log(emit_counts / emit_counts.sum(0))
+
+        return self.converged
+
+    def viterbi_training(self, obs_seq):
 
         # initialize variables
-        self.initialize_forw_back_variables(shape)
+        self.initialize_viterbi(obs_seq)
+
+        # used for convergence testing.
+        N = len(obs_seq)
+        shape = [N, self.S]
+        self.forward_ll = torch.zeros(shape, dtype=torch.float64)
+        self.ll_history = []
+
+        converged = False
+
+        for i in range(self.maxStep):
+            converged = self.viterbi_training_step(obs_seq)
+            if converged:
+                print('converged at step {}'.format(i))
+                break
+
+        print('HISTORY!')
+        print(self.ll_history)
+        return self.log_T0, self.log_T, self.log_E, converged
+
+    def baum_welch(self, obs_seq):
+        # initialize variables
+        self.initialize_forw_back_variables(obs_seq)
+
+        # used for convergence testing.
         self.ll_history = []
 
         converged = False
