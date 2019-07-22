@@ -212,7 +212,7 @@ def test_baum_welch():
                        [0.05, 0.95]])
 
     true_model = HiddenMarkovModel(True_T, True_E, True_pi)
-    obs_seq, states = true_model.sample(150)
+    obs_seq, states = true_model.sample(500)
 
     print("First 10 Obersvations:  ", obs_seq[:10])
     print("First 10 Hidden States: ", states[:10])
@@ -226,7 +226,7 @@ def test_baum_welch():
                        [0.4, 0.7]])
 
     model = HiddenMarkovModel(init_T, init_E, init_pi,
-                              epsilon=0.0001, maxStep=100)
+                              epsilon=0.1, maxStep=100)
 
     trans0, transition, emission, converge = model.Baum_Welch_EM(obs_seq)
 

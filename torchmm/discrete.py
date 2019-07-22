@@ -181,14 +181,14 @@ class HiddenMarkovModel(object):
         # Forward
         self.forward_ll[0] = self.log_T0 + self.obs_ll_full[0]
         for step, obs_ll in enumerate(self.obs_ll_full[1:]):
-            self.forward_ll[step+1] = (self.belief_sum(self.forward_ll[step, :]) +
-                                    obs_ll)
+            self.forward_ll[step+1] = (
+                self.belief_sum(self.forward_ll[step, :]) + obs_ll)
 
         # Backward
         self.backward_ll[0] = torch.ones([self.S], dtype=torch.float64)
         for step, obs_prob in enumerate(self.obs_ll_full.flip([0, 1])[:-1]):
-            self.backward_ll[step+1] = self.belief_sum(self.backward_ll[step, :] +
-                                                    obs_prob)
+            self.backward_ll[step+1] = self.belief_sum(
+                self.backward_ll[step, :] + obs_prob)
         self.backward_ll = self.backward_ll.flip([0, 1])
         self.posterior_ll = self.forward_ll + self.backward_ll
 
@@ -262,36 +262,39 @@ class HiddenMarkovModel(object):
         print(new_E.exp())
         return new_E
 
-    def check_convergence(self, new_log_T0, new_log_transition,
-                          new_log_emission):
-        delta_T0 = (torch.max(torch.abs(self.log_T0 - new_log_T0)).item() <
-                    self.epsilon)
-        delta_T = (torch.max(torch.abs(self.log_T - new_log_transition)).item()
-                   < self.epsilon)
-        delta_E = (torch.max(torch.abs(self.log_E - new_log_emission)).item()
-                   < self.epsilon)
-        print(delta_T0, delta_T, delta_E)
-        return delta_T0 and delta_T and delta_E
+    @property
+    def converged(self):
+        return (len(self.ll_history) == 2 and self.ll_history[-2] -
+                self.ll_history[-1] < self.epsilon)
+
+    # def check_convergence(self, new_log_T0, new_log_transition,
+    #                       new_log_emission):
+    #     delta_T0 = (torch.max(torch.abs(self.log_T0 - new_log_T0)).item() <
+    #                 self.epsilon)
+    #     delta_T = (torch.max(torch.abs(self.log_T -
+    #     new_log_transition)).item() < self.epsilon)
+    #     delta_E = (torch.max(torch.abs(self.log_E - new_log_emission)).item()
+    #                < self.epsilon)
+    #     print(delta_T0, delta_T, delta_E)
+    #     return delta_T0 and delta_T and delta_E
 
     def expectation_maximization_step(self, obs_seq):
 
         self.forward_backward_inference(obs_seq)
-
-        # print(self.forward_ll)
-        # print(self.backward_ll)
-        # print(self.posterior_ll)
+        self.ll_history.append(self.forward_ll[-1].sum())
+        print('LL: ', self.ll_history[-1])
 
         log_T0_new, log_T_new = self.re_estimate_transition_ll(obs_seq)
         log_E_new = self.re_estimate_emission_ll(obs_seq)
 
-        converged = self.check_convergence(
-            log_T0_new, log_T_new, log_E_new)
+        # converged = self.check_convergence(
+        #     log_T0_new, log_T_new, log_E_new)
 
         self.log_T0 = log_T0_new
         self.log_E = log_E_new
         self.log_T = log_T_new
 
-        return converged
+        return self.converged
 
     def Baum_Welch_EM(self, obs_seq):
         # length of observed sequence
@@ -302,6 +305,7 @@ class HiddenMarkovModel(object):
 
         # initialize variables
         self.initialize_forw_back_variables(shape)
+        self.ll_history = []
 
         converged = False
 
