@@ -191,78 +191,14 @@ def test_fb_inference():
     model = HiddenMarkovModel(trans, emi, p0)
     obs_seq = np.array([1, 1])
 
-    # Original approach
-    model.N = len(obs_seq)
-    shape = [model.N, model.S]
-
-    model.initialize_forw_back_variables(shape)
-    obs_prob_seq = model.E[obs_seq]
-    model.forward_backward(obs_prob_seq)
-    posterior = model.forward * model.backward
-
-    # marginal per timestep
-    marginal = torch.sum(posterior, 1)
-    # Normalize porsterior into probabilities
-    posterior = posterior / marginal.view(-1, 1)
-    print("ORIGINAL")
-    print(posterior)
-
     # New approach
     posterior_ll = model.forward_backward_inference(obs_seq)
     posterior_prob = torch.exp(posterior_ll)
     m = torch.sum(posterior_prob, 1)
     posterior_prob = posterior_prob / m.view(-1, 1)
-    print("NEW")
-    print(posterior_prob)
 
     first_correct = np.array([[0.11664296, 0.88335704]])
-    assert np.allclose(posterior.data.numpy()[0], first_correct)
     assert np.allclose(posterior_prob.data.numpy()[0], first_correct)
-    assert np.allclose(posterior.data.numpy(), posterior_prob.data.numpy())
-
-
-def test_forward_backward():
-    states = {0: 'rain', 1: 'no_rain'}
-    # obs = {0: 'umbrella', 1: 'no_umbrella'}
-
-    p0 = np.array([0.5, 0.5])
-    emi = np.array([[0.9, 0.2],
-                    [0.1, 0.8]])
-    trans = np.array([[0.7, 0.3],
-                      [0.3, 0.7]])
-
-    model = HiddenMarkovModel(trans, emi, p0)
-    obs_seq = np.array([1, 1, 0, 0, 0, 1])
-
-    model.N = len(obs_seq)
-    shape = [model.N, model.S]
-
-    model.initialize_forw_back_variables(shape)
-    obs_prob_seq = model.E[obs_seq]
-    model.forward_backward(obs_prob_seq)
-    posterior = model.forward * model.backward
-
-    # marginal per timestep
-    marginal = torch.sum(posterior, 1)
-    # Normalize porsterior into probabilities
-    posterior = posterior / marginal.view(-1, 1)
-
-    results = [model.forward.cpu().numpy(), model.backward.cpu().numpy(),
-               posterior.cpu().numpy()]
-    result_list = ["Forward", "Backward", "Posterior"]
-
-    for state_prob, path in zip(results, result_list):
-        inferred_states = np.argmax(state_prob, axis=1)
-        # print()
-        # print(path)
-        # # dptable(state_prob)
-        # print(state_prob)
-        # print()
-
-    inferred_states = [states[s] for s in inferred_states]
-    print(inferred_states)
-    assert inferred_states == ['no_rain', 'no_rain', 'rain', 'rain', 'rain',
-                               'no_rain']
 
 
 def test_baum_welch():
@@ -283,8 +219,8 @@ def test_baum_welch():
 
     init_pi = np.array([0.5, 0.5])
 
-    init_T = np.array([[0.5, 0.5],
-                       [0.5, 0.5]])
+    init_T = np.array([[0.6, 0.4],
+                       [0.3, 0.7]])
 
     init_E = np.array([[0.6, 0.3],
                        [0.4, 0.7]])
@@ -294,11 +230,18 @@ def test_baum_welch():
 
     trans0, transition, emission, converge = model.Baum_Welch_EM(obs_seq)
 
+    # Not enough samples (only 1) to test
+    # assert np.allclose(trans0.data.numpy(), True_pi)
+    print("Pi Matrix: ")
+    print(trans0.exp())
+
     print("Transition Matrix: ")
-    print(transition)
+    print(transition.exp())
+    # assert np.allclose(transition.exp().data.numpy(), True_T, atol=0.1)
     print()
     print("Emission Matrix: ")
-    print(emission)
+    print(emission.exp())
+    # assert np.allclose(emission.exp().data.numpy(), True_E, atol=0.1)
     print()
     print("Reached Convergence: ")
     print(converge)
