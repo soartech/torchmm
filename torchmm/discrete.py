@@ -217,17 +217,23 @@ class HiddenMarkovModel(object):
                       torch.logsumexp(self.forward_ll[0], 0))
 
         # Compute expected transitions
-        M_ll = (self.forward_ll[:-1].expand(2, -1, -1).permute(1, 2, 0) +
+        M_ll = (self.forward_ll[:-1].unsqueeze(2).expand(-1, -1, 2) +
                 self.log_T.expand(N-1, -1, -1) +
-                obs_ll_full[1:].expand(2, -1, -1).permute(1, 2, 0) +
-                self.backward_ll[1:].expand(2, -1, -1).permute(1, 2, 0))
+                obs_ll_full[1:].unsqueeze(2).expand(-1, -1, 2) +
+                self.backward_ll[1:].unsqueeze(2).expand(-1, -1, 2))
 
         denom = self.posterior_ll[:-1].logsumexp(1)
-        M_ll -= denom.unsqueeze(1).unsqueeze(1).expand(-1, self.S, self.S)
+        M_ll -= denom.unsqueeze(1).unsqueeze(2).expand(-1, self.S, self.S)
 
         # Estimate new transition matrix
+        print(torch.logsumexp(M_ll, 0).shape)
+        print(torch.logsumexp(M_ll, (0, 2)).shape)
+
         log_T_new = (torch.logsumexp(M_ll, 0) -
-                     torch.logsumexp(torch.logsumexp(M_ll, 2), 0))
+                     torch.logsumexp(M_ll, (0, 2)).view(-1, 1))
+
+        print(torch.exp(log_T0_new))
+        print(torch.exp(log_T_new))
 
         return log_T0_new, log_T_new
 
@@ -252,7 +258,9 @@ class HiddenMarkovModel(object):
         seq_one_hot.scatter_(1, torch.tensor(x).unsqueeze(1), 1)
         emission_score = torch.matmul(seq_one_hot.transpose_(1, 0), gamma)
 
-        return torch.log(emission_score / states_marginal)
+        new_E = torch.log(emission_score / states_marginal)
+        print(new_E.exp())
+        return new_E
 
     def check_convergence(self, new_log_T0, new_log_transition,
                           new_log_emission):
@@ -262,6 +270,7 @@ class HiddenMarkovModel(object):
                    < self.epsilon)
         delta_E = (torch.max(torch.abs(self.log_E - new_log_emission)).item()
                    < self.epsilon)
+        print(delta_T0, delta_T, delta_E)
         return delta_T0 and delta_T and delta_E
 
     def expectation_maximization_step(self, obs_seq):

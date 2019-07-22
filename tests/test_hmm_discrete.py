@@ -246,6 +246,8 @@ def test_baum_welch():
     print("Reached Convergence: ")
     print(converge)
 
+    assert converge
+
     states_seq, path_ll = model.viterbi_inference(obs_seq)
 
     # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
