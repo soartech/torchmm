@@ -169,7 +169,7 @@ class HiddenMarkovModel(object):
 
         return self.states_seq, self.path_scores
 
-    def forward(self, x):
+    def forward(self):
         """
         Computes the forward values.
         """
@@ -178,7 +178,7 @@ class HiddenMarkovModel(object):
             self.forward_ll[step+1] = (
                 self.belief_sum(self.forward_ll[step, :]) + obs_ll)
 
-    def backward(self, x):
+    def backward(self):
         """
         Computes the backward values.
         """
@@ -200,10 +200,10 @@ class HiddenMarkovModel(object):
             - self.obs_ll_full
         """
         # Forward
-        self.forward(x)
+        self.forward()
 
         # Backward
-        self.backward(x)
+        self.backward()
 
         # Posterior
         self.posterior_ll = self.forward_ll + self.backward_ll
@@ -297,7 +297,7 @@ class HiddenMarkovModel(object):
 
         # for convergence testing
         self.obs_ll_full = self.emission_ll(obs_seq)
-        self.forward(obs_seq)
+        self.forward()
         self.ll_history.append(self.forward_ll[-1].sum())
 
         # do the updating
