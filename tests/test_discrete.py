@@ -116,14 +116,14 @@ def test_belief_propagation():
 
     T0_t = torch.tensor(T0)
     log_T0 = torch.log(T0_t)
-    max_b, _ = model.belief_max(log_T0)
+    max_b, _ = model._belief_prop_max(log_T0)
     assert np.allclose(res.max(0), max_b.data.numpy())
 
-    sum_b = model.belief_sum(log_T0)
+    sum_b = model._belief_prop_sum(log_T0)
     assert np.allclose(logsumexp(res, 0), sum_b.data.numpy())
 
 
-def test_viterbi():
+def test_decode():
     states = {0: 'Healthy', 1: 'Fever'}
     # obs = {0: 'normal', 1: 'cold', 2: 'dizzy'}
 
@@ -136,15 +136,14 @@ def test_viterbi():
     model = HiddenMarkovModel(trans, emi, p0)
 
     obs_seq = np.array([0, 0, 1, 2, 2])
-    model.initialize_viterbi(obs_seq)
-    states_seq, states_ll = model.viterbi_inference(obs_seq)
+    states_seq, states_ll = model.decode(obs_seq)
 
     most_likely_states = [states[s.item()] for s in states_seq]
     assert most_likely_states == ['Healthy', 'Healthy', 'Healthy', 'Fever',
                                   'Fever']
 
 
-def test_viterbi_aima_umbrella_example():
+def test_decode_aima_umbrella_example():
     """
     This example was taken from AI a Modern Approach
 
@@ -164,8 +163,7 @@ def test_viterbi_aima_umbrella_example():
     model = HiddenMarkovModel(trans, emi, p0)
 
     obs_seq = np.array([1, 1, 0, 1, 1])
-    model.initialize_viterbi(obs_seq)
-    states_seq, path_ll = model.viterbi_inference(obs_seq)
+    states_seq, path_ll = model.decode(obs_seq)
 
     most_likely_states = [states[s.item()] for s in states_seq]
     assert most_likely_states == ['Rain', 'Rain', 'No Rain', 'Rain', 'Rain']
@@ -182,7 +180,100 @@ def test_viterbi_aima_umbrella_example():
     assert np.allclose(normalized, correct)
 
 
-def test_fb_inference():
+def test_filter_aima_umbrella_example():
+    """
+    This example was taken from AI a Modern Approach
+
+    The example comes from page 572, filtering and prediction section. The
+    correct values were manually compared to the normalized values from this
+    example.
+    """
+    # states = {0: 'No Rain', 1: 'Rain'}
+    # obs = {0: 'No Umbrella', 1: 'Umbrella'}
+
+    p0 = np.array([0.5, 0.5])
+    emi = np.array([[0.8, 0.1],
+                    [0.2, 0.9]])
+    trans = np.array([[0.7, 0.3],
+                      [0.3, 0.7]])
+    model = HiddenMarkovModel(trans, emi, p0)
+
+    obs_seq = np.array([1])
+    posterior = model.filter(obs_seq)
+    probs = torch.exp(posterior).data.numpy()
+    normalized = probs / probs.sum(axis=0)
+    correct = np.array([0.18181818, 0.81818182])
+    assert np.allclose(normalized, correct)
+
+    obs_seq = np.array([1, 1])
+    posterior = model.filter(obs_seq)
+    probs = torch.exp(posterior).data.numpy()
+    normalized = probs / probs.sum(axis=0)
+    correct = np.array([0.11664296, 0.88335704])
+    assert np.allclose(normalized, correct)
+
+
+def test_score_aima_umbrella_example():
+    """
+    This example was taken from AI a Modern Approach
+
+    The example comes from page 572, filtering and prediction section. The
+    correct values were manually computed by summing the filtered posterior.
+    """
+    # states = {0: 'No Rain', 1: 'Rain'}
+    # obs = {0: 'No Umbrella', 1: 'Umbrella'}
+
+    p0 = np.array([0.5, 0.5])
+    emi = np.array([[0.8, 0.1],
+                    [0.2, 0.9]])
+    trans = np.array([[0.7, 0.3],
+                      [0.3, 0.7]])
+    model = HiddenMarkovModel(trans, emi, p0)
+
+    obs_seq = np.array([1])
+    ll_score = model.score(obs_seq)
+    print(ll_score)
+    assert ll_score - -3.101092789211817 < 0.001
+
+    obs_seq = np.array([1, 1])
+    ll_score = model.score(obs_seq)
+    assert ll_score - -3.101092789211817 < 0.001
+
+
+def test_predict_aima_umbrella_example():
+    """
+    This example was taken from AI a Modern Approach
+
+    The example comes from page 572, filtering and prediction section. The
+    correct values were manually compared propagated one step into future from
+    the filtering example.
+    """
+    # states = {0: 'No Rain', 1: 'Rain'}
+    # obs = {0: 'No Umbrella', 1: 'Umbrella'}
+
+    p0 = np.array([0.5, 0.5])
+    emi = np.array([[0.8, 0.1],
+                    [0.2, 0.9]])
+    trans = np.array([[0.7, 0.3],
+                      [0.3, 0.7]])
+    model = HiddenMarkovModel(trans, emi, p0)
+
+    obs_seq = np.array([1])
+    posterior = model.predict(obs_seq)
+    probs = torch.exp(posterior).data.numpy()
+    normalized = probs / probs.sum(axis=0)
+    correct = np.array([0.37272727, 0.62727273])
+    assert np.allclose(normalized, correct)
+
+    obs_seq = np.array([1, 1])
+    posterior = model.predict(obs_seq)
+    probs = torch.exp(posterior).data.numpy()
+    normalized = probs / probs.sum(axis=0)
+    correct = np.array([0.34665718, 0.65334282])
+    assert np.allclose(normalized, correct)
+
+
+def test_smooth():
 
     p0 = np.array([0.5, 0.5])
     emi = np.array([[0.8, 0.1],
@@ -194,9 +285,7 @@ def test_fb_inference():
     obs_seq = np.array([1, 1])
 
     # New approach
-    model.initialize_forw_back_variables(obs_seq)
-    model.obs_ll_full = model.emission_ll(obs_seq)
-    posterior_ll = model.forward_backward_inference(obs_seq)
+    posterior_ll = model.smooth(obs_seq)
     posterior_prob = torch.exp(posterior_ll)
     m = torch.sum(posterior_prob, 1)
     posterior_prob = posterior_prob / m.view(-1, 1)
@@ -232,7 +321,8 @@ def test_baum_welch():
     model = HiddenMarkovModel(init_T, init_E, init_pi,
                               epsilon=0.1, maxStep=100)
 
-    trans0, transition, emission, converge = model.baum_welch(obs_seq)
+    trans0, transition, emission, converge = model.fit(obs_seq,
+                                                       alg="baum_welch")
 
     # Not enough samples (only 1) to test
     # assert np.allclose(trans0.data.numpy(), True_pi)
@@ -252,8 +342,7 @@ def test_baum_welch():
 
     assert converge
 
-    model.initialize_viterbi(obs_seq)
-    states_seq, path_ll = model.viterbi_inference(obs_seq)
+    states_seq, path_ll = model.decode(obs_seq)
 
     # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
     #                           range(len(model.prob_state_1))])
@@ -294,7 +383,7 @@ def test_viterbi_training():
     model = HiddenMarkovModel(init_T, init_E, init_pi,
                               epsilon=0.1, maxStep=10)
 
-    trans0, transition, emission, converge = model.viterbi_training(obs_seq)
+    trans0, transition, emission, converge = model.fit(obs_seq, alg="viterbi")
 
     # Not enough samples (only 1) to test
     # assert np.allclose(trans0.data.numpy(), True_pi)
@@ -314,8 +403,7 @@ def test_viterbi_training():
 
     assert converge
 
-    model.initialize_viterbi(obs_seq)
-    states_seq, path_ll = model.viterbi_inference(obs_seq)
+    states_seq, path_ll = model.decode(obs_seq)
 
     # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
     #                           range(len(model.prob_state_1))])
