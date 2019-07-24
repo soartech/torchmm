@@ -6,13 +6,11 @@ class HiddenMarkovModel(object):
     """
     Hidden Markov self Class
 
-    Parameters:
-    -----------
-    - T: numpy.array Transition matrix of size S by S stores probability from
-    state i to state j.
-    - E: numpy.array Emission matrix of size N (number of observations) by S
-    (number of states) stores the probability of observing  O from each state
-    - T0: numpy.array Initial state probabilities of size S.
+    :param numpy.array T: Transition matrix of size S by S stores probability
+    from state i to state j.
+    :param numpy.array E: Emission matrix of size N (number of observations) by
+    S (number of states) stores the probability of observing  O from each state
+    :param numpy.array T0: Initial state probabilities of size S.
     """
 
     def __init__(self, T, E, T0, epsilon=0.001, maxStep=10):
@@ -80,12 +78,68 @@ class HiddenMarkovModel(object):
         emission_params = self.T.shape[0] * (self.E.shape[0] - 1)
         return init_params + transition_params + emission_params
 
+    def decode(self, X, lengths=None):
+        """
+        Find the most likely state sequences corresponding to X.
+
+        .. todo::
+            Modify this doc comment based on how we decide to pack/pad X.
+
+        Parameters:
+            * X (array-like, (n_sequences, n_observations, n_features)) - the
+            sequence data.
+            * lengths (array-like, integer lengths of each sequence
+            (n_sequences,)) - Lengths of the individual sequences in X.
+        """
+        raise NotImplementedError()
+
+    def smooth(self, X, lengths=None):
+        """
+        Compute the smoothed posterior probability over each state for the
+        sequences in X.
+
+        .. todo::
+            Update this doc comment.
+        """
+        raise NotImplementedError()
+
+    def filter(self, X, lengths=None):
+        """
+        Compute the posterior distribution over the most recent state in each
+        sequence-- given all the evidence to date for each.
+
+        Filtering might also be referred to as state estimation.
+
+        .. todo::
+            Update this doc comment.
+        """
+        raise NotImplementedError()
+
+    def predict(self, X, lengths=None):
+        """
+        Compute the posterior distributions over the next (future) states for
+        each sequence in X.
+
+        .. todo::
+            Update this doc comment.
+        """
+        raise NotImplementedError()
+
+    def score(self, X, lengths=None):
+        """
+        Compute the log likelihood of the observations given the model.
+
+        .. todo::
+            Update this doc comment.
+        """
+        raise NotImplementedError()
+
     def sample(self, num_obs):
         """
         Draws a sample from the HMM of length num_obs.
 
-        TODO:
-            - refactor to use arbitrary emission PDF
+        .. todo::
+            refactor to use arbitrary emission PDF
         """
         def drawFrom(probs):
             return np.where(np.random.multinomial(1, probs) == 1)[0][0]
@@ -328,9 +382,8 @@ class HiddenMarkovModel(object):
         self.initialize_viterbi(obs_seq)
 
         # used for convergence testing.
-        N = len(obs_seq)
-        shape = [N, self.S]
-        self.forward_ll = torch.zeros(shape, dtype=torch.float64)
+        self.forward_ll = torch.zeros([len(obs_seq), self.S],
+                                      dtype=torch.float64)
         self.ll_history = []
 
         converged = False
