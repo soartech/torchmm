@@ -315,7 +315,6 @@ class HiddenMarkovModel(object):
                         self.path_scores[start[step-1] +
                                          self.batch_sizes[step]:end[step-1]],
                         1)
-            print(self.states_seq)
 
         # # infer most likely last state
         # self.states_seq[N-1] = torch.argmax(self.path_scores[N-1, :], 0)
@@ -461,7 +460,7 @@ class HiddenMarkovModel(object):
         emission_score = torch.matmul(seq_one_hot.transpose_(1, 0), gamma)
 
         new_E = torch.log(emission_score / states_marginal)
-        print(new_E.exp())
+        # print(new_E.exp())
         return new_E
 
     @property
@@ -489,26 +488,42 @@ class HiddenMarkovModel(object):
         # for convergence testing
         self.obs_ll_full = self._emission_ll(obs_seq)
         self._forward()
-        self.ll_history.append(self.forward_ll[-1].sum())
+        f_ll_packed = PackedSequence(
+            data=self.forward_ll, batch_sizes=obs_seq.batch_sizes,
+            sorted_indices=obs_seq.sorted_indices,
+            unsorted_indices=obs_seq.unsorted_indices)
+        f_ll_unpacked, lengths = pad_packed_sequence(f_ll_packed,
+                                                     batch_first=True)
+        self.ll_history.append(f_ll_unpacked[:, lengths-1].squeeze(1).sum())
+        # self.ll_history.append(self.forward_ll[-1].sum())
 
         # do the updating
         states, _ = self._viterbi_inference(obs_seq)
 
         # start prob
-        self.log_T0 = torch.log(torch.zeros_like(self.log_T0))
-        self.log_T0[states[0]] = 0
+        s_counts = states[:self.batch_sizes[0]].bincount(minlength=self.S)
+        self.log_T0 = torch.log(s_counts.float() /
+                                s_counts.sum()).type(torch.float64)
 
         # transition
-        transition_counts = torch.zeros_like(self.log_T)
-        for i, s in enumerate(states[:-1]):
-            transition_counts[s, states[i+1]] += 1
-        self.log_T = torch.log(transition_counts /
-                               transition_counts.sum(1).view(-1, 1))
+        t_counts = torch.zeros_like(self.log_T)
+
+        idx = 0
+        for t, prev_size in enumerate(self.batch_sizes[:-1]):
+            start = idx
+            mid = start + prev_size
+            # end = mid + self.batch_sizes[t+1]
+            for i in range(self.batch_sizes[t+1]):
+                t_counts[states[start:start+i+1], states[mid:mid+i+1]] += 1
+            idx = mid
+
+        self.log_T = torch.log(t_counts /
+                               t_counts.sum(1).view(-1, 1))
 
         # emission
         emit_counts = torch.zeros_like(self.log_E)
         for i, s in enumerate(states):
-            emit_counts[obs_seq[i], s] += 1
+            emit_counts[obs_seq.data[i], s] += 1
         self.log_E = torch.log(emit_counts / emit_counts.sum(0))
 
         return self.converged
@@ -519,7 +534,7 @@ class HiddenMarkovModel(object):
         self._init_viterbi(obs_seq)
 
         # used for convergence testing.
-        self.forward_ll = torch.zeros([len(obs_seq), self.S],
+        self.forward_ll = torch.zeros([len(obs_seq.data), self.S],
                                       dtype=torch.float64)
         self.ll_history = []
 
