@@ -53,10 +53,10 @@ def test_sample():
                        [0.0, 1.0]])
 
     true_model = HiddenMarkovModel(True_T, True_E, True_pi)
-    obs_seq, states = true_model.sample(10)
+    obs_seq, states = true_model.sample(3, 10)
 
-    assert len(obs_seq) == 10
-    assert len(states) == 10
+    assert obs_seq.shape == (3, 10)
+    assert states.shape == (3, 10)
     assert 1 not in obs_seq
     assert 1 not in states
 
@@ -69,10 +69,10 @@ def test_sample():
                        [0.0, 1.0]])
 
     true_model = HiddenMarkovModel(True_T, True_E, True_pi)
-    obs_seq, states = true_model.sample(20)
+    obs_seq, states = true_model.sample(4, 20)
 
-    assert len(obs_seq) == 20
-    assert len(states) == 20
+    assert obs_seq.shape == (4, 20)
+    assert states.shape == (4, 20)
     assert 1 in obs_seq and 0 in obs_seq
     assert 1 in states and 0 in states
 
@@ -85,10 +85,10 @@ def test_sample():
                        [0.0, 1.0]])
 
     true_model = HiddenMarkovModel(True_T, True_E, True_pi)
-    obs_seq, states = true_model.sample(20)
+    obs_seq, states = true_model.sample(1, 20)
 
-    assert len(obs_seq) == 20
-    assert len(states) == 20
+    assert obs_seq.shape == (1, 20)
+    assert states.shape == (1, 20)
     assert (states == 0).sum() > (states == 1).sum()
 
 
@@ -116,10 +116,12 @@ def test_belief_propagation():
 
     T0_t = torch.tensor(T0)
     log_T0 = torch.log(T0_t)
-    max_b, _ = model._belief_prop_max(log_T0)
+    max_b, _ = model._belief_prop_max(log_T0.permute(1, 0))
+    print(max_b)
+    print(res.max(0))
     assert np.allclose(res.max(0), max_b.data.numpy())
 
-    sum_b = model._belief_prop_sum(log_T0)
+    sum_b = model._belief_prop_sum(log_T0.permute(1, 0))
     assert np.allclose(logsumexp(res, 0), sum_b.data.numpy())
 
 
@@ -135,7 +137,7 @@ def test_decode():
                       [0.4, 0.6]])
     model = HiddenMarkovModel(trans, emi, p0)
 
-    obs_seq = np.array([0, 0, 1, 2, 2])
+    obs_seq = np.array([[0, 0, 1, 2, 2]])
     states_seq, states_ll = model.decode(obs_seq)
 
     most_likely_states = [states[s.item()] for s in states_seq]
@@ -162,7 +164,7 @@ def test_decode_aima_umbrella_example():
                       [0.3, 0.7]])
     model = HiddenMarkovModel(trans, emi, p0)
 
-    obs_seq = np.array([1, 1, 0, 1, 1])
+    obs_seq = np.array([[1, 1, 0, 1, 1]])
     states_seq, path_ll = model.decode(obs_seq)
 
     most_likely_states = [states[s.item()] for s in states_seq]
@@ -198,18 +200,18 @@ def test_filter_aima_umbrella_example():
                       [0.3, 0.7]])
     model = HiddenMarkovModel(trans, emi, p0)
 
-    obs_seq = np.array([1])
+    obs_seq = np.array([[1]])
     posterior = model.filter(obs_seq)
     probs = torch.exp(posterior).data.numpy()
-    normalized = probs / probs.sum(axis=0)
-    correct = np.array([0.18181818, 0.81818182])
+    normalized = probs / probs.sum(axis=1)
+    correct = np.array([[0.18181818, 0.81818182]])
     assert np.allclose(normalized, correct)
 
-    obs_seq = np.array([1, 1])
+    obs_seq = np.array([[1, 1]])
     posterior = model.filter(obs_seq)
     probs = torch.exp(posterior).data.numpy()
-    normalized = probs / probs.sum(axis=0)
-    correct = np.array([0.11664296, 0.88335704])
+    normalized = probs / probs.sum(axis=1)
+    correct = np.array([[0.11664296, 0.88335704]])
     assert np.allclose(normalized, correct)
 
 
@@ -230,12 +232,12 @@ def test_score_aima_umbrella_example():
                       [0.3, 0.7]])
     model = HiddenMarkovModel(trans, emi, p0)
 
-    obs_seq = np.array([1])
+    obs_seq = np.array([[1]])
     ll_score = model.score(obs_seq)
     print(ll_score)
     assert ll_score - -3.101092789211817 < 0.001
 
-    obs_seq = np.array([1, 1])
+    obs_seq = np.array([[1, 1]])
     ll_score = model.score(obs_seq)
     assert ll_score - -3.101092789211817 < 0.001
 
@@ -258,18 +260,21 @@ def test_predict_aima_umbrella_example():
                       [0.3, 0.7]])
     model = HiddenMarkovModel(trans, emi, p0)
 
-    obs_seq = np.array([1])
+    obs_seq = np.array([[1]])
     posterior = model.predict(obs_seq)
+    print(posterior)
     probs = torch.exp(posterior).data.numpy()
-    normalized = probs / probs.sum(axis=0)
-    correct = np.array([0.37272727, 0.62727273])
+    print(probs)
+    print(probs.shape)
+    normalized = probs / probs.sum(axis=1)
+    correct = np.array([[0.37272727, 0.62727273]])
     assert np.allclose(normalized, correct)
 
-    obs_seq = np.array([1, 1])
+    obs_seq = np.array([[1, 1]])
     posterior = model.predict(obs_seq)
     probs = torch.exp(posterior).data.numpy()
-    normalized = probs / probs.sum(axis=0)
-    correct = np.array([0.34665718, 0.65334282])
+    normalized = probs / probs.sum(axis=1)
+    correct = np.array([[0.34665718, 0.65334282]])
     assert np.allclose(normalized, correct)
 
 
@@ -282,7 +287,7 @@ def test_smooth():
                       [0.3, 0.7]])
 
     model = HiddenMarkovModel(trans, emi, p0)
-    obs_seq = np.array([1, 1])
+    obs_seq = np.array([[1, 1]])
 
     # New approach
     posterior_ll = model.smooth(obs_seq)
@@ -305,7 +310,7 @@ def test_baum_welch():
                        [0.05, 0.95]])
 
     true_model = HiddenMarkovModel(True_T, True_E, True_pi)
-    obs_seq, states = true_model.sample(500)
+    obs_seq, states = true_model.sample(1, 500)
 
     print("First 10 Obersvations:  ", obs_seq[:10])
     print("First 10 Hidden States: ", states[:10])
@@ -367,7 +372,7 @@ def test_viterbi_training():
                        [0.05, 0.95]])
 
     true_model = HiddenMarkovModel(True_T, True_E, True_pi)
-    obs_seq, states = true_model.sample(500)
+    obs_seq, states = true_model.sample(1, 500)
 
     print("First 10 Obersvations:  ", obs_seq[:10])
     print("First 10 Hidden States: ", states[:10])

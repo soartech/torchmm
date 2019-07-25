@@ -1,6 +1,10 @@
 import numpy as np
 import torch
 
+from torchmm.utils import pack_list
+from torch.nn.utils.rnn import PackedSequence
+from torch.nn.utils.rnn import pad_packed_sequence
+
 
 class HiddenMarkovModel(object):
     """
@@ -41,8 +45,6 @@ class HiddenMarkovModel(object):
         # Number of possible observations
         self.Obs = E.shape[0]
 
-        self.prob_state_1 = []
-
         # Emission probability
         # self.E = torch.tensor(E)
         self.log_E = torch.log(torch.tensor(E))
@@ -54,6 +56,18 @@ class HiddenMarkovModel(object):
         # Initial state vector
         # self.T0 = torch.tensor(T0)
         self.log_T0 = torch.log(torch.tensor(T0))
+
+    @property
+    def T0(self):
+        return self.log_T0.exp()
+
+    @property
+    def T(self):
+        return self.log_T.exp()
+
+    @property
+    def E(self):
+        return self.log_E.exp()
 
     def num_states(self):
         """
@@ -82,12 +96,14 @@ class HiddenMarkovModel(object):
 
         Alg can be either 'baum_welch' or 'viterbi'.
         """
-        if alg == 'baum_welch':
-            return self._baum_welch(X)
-        else:
-            return self._viterbi_training(X)
+        packed_X = pack_list(X)
 
-    def decode(self, X, lengths=None):
+        if alg == 'baum_welch':
+            return self._baum_welch(packed_X)
+        else:
+            return self._viterbi_training(packed_X)
+
+    def decode(self, X):
         """
         Find the most likely state sequences corresponding to X.
 
@@ -100,10 +116,11 @@ class HiddenMarkovModel(object):
             * lengths (array-like, integer lengths of each sequence
             (n_sequences,)) - Lengths of the individual sequences in X.
         """
-        self._init_viterbi(X)
-        return self._viterbi_inference(X)
+        X_packed = pack_list(X)
+        self._init_viterbi(X_packed)
+        return self._viterbi_inference(X_packed)
 
-    def smooth(self, X, lengths=None):
+    def smooth(self, X):
         """
         Compute the smoothed posterior probability over each state for the
         sequences in X.
@@ -111,12 +128,13 @@ class HiddenMarkovModel(object):
         .. todo::
             Update this doc comment and update to reflect packed and padded seq
         """
-        self._init_forw_back(X)
-        self.obs_ll_full = self._emission_ll(X)
-        self._forward_backward_inference(X)
+        packed = pack_list(X)
+        self._init_forw_back(packed)
+        self.obs_ll_full = self._emission_ll(packed)
+        self._forward_backward_inference(packed)
         return self.posterior_ll
 
-    def filter(self, X, lengths=None):
+    def filter(self, X):
         """
         Compute the log posterior distribution over the most recent state in
         each sequence-- given all the evidence to date for each.
@@ -126,125 +144,186 @@ class HiddenMarkovModel(object):
         .. todo::
             Update this doc comment.
         """
-        self.forward_ll = torch.zeros([len(X), self.S], dtype=torch.float64)
-        self.obs_ll_full = self._emission_ll(X)
+        X_packed = pack_list(X)
+        self.forward_ll = torch.zeros([len(X_packed.data), self.S],
+                                      dtype=torch.float64)
+        self.obs_ll_full = self._emission_ll(X_packed)
+        self.batch_sizes = X_packed.batch_sizes
         self._forward()
-        return self.forward_ll[-1]
+        f_ll_packed = PackedSequence(
+            data=self.forward_ll, batch_sizes=X_packed.batch_sizes,
+            sorted_indices=X_packed.sorted_indices,
+            unsorted_indices=X_packed.unsorted_indices)
+        f_ll_unpacked, lengths = pad_packed_sequence(f_ll_packed,
+                                                     batch_first=True)
+        return f_ll_unpacked[:, lengths-1].squeeze(1)
 
-        raise NotImplementedError()
-
-    def predict(self, X, lengths=None):
+    def predict(self, X):
         """
         Compute the posterior distributions over the next (future) states for
         each sequence in X. Predicts 1 step into the future for each sequence.
 
         .. todo::
             Update this doc comment.
+
+        .. todo::
+            Update to accept a number of timesteps to project.
         """
-        states = self.filter(X, lengths)
+        states = self.filter(X)
         return self._belief_prop_sum(states)
 
-    def score(self, X, lengths=None):
+    def score(self, X):
         """
         Compute the log likelihood of the observations given the model.
 
         .. todo::
             Update this doc comment.
         """
-        return self.filter(X, lengths).sum().item()
+        return self.filter(X).sum().item()
 
-    def sample(self, num_obs):
+    def sample(self, n_seq, n_obs):
         """
         Draws a sample from the HMM of length num_obs.
 
         .. todo::
-            refactor to use arbitrary emission PDF
+            could move obs outside loop.
         """
-        def drawFrom(probs):
-            return np.where(np.random.multinomial(1, probs) == 1)[0][0]
+        obs = torch.zeros([n_seq, n_obs], dtype=torch.long)
+        states = torch.zeros([n_seq, n_obs], dtype=torch.long)
 
-        obs = np.zeros(num_obs)
-        states = np.zeros(num_obs)
-        states[0] = drawFrom(torch.exp(self.log_T0))
-        obs[0] = drawFrom(torch.exp(self.log_E[:, int(states[0])]))
-        for t in range(1, num_obs):
-            states[t] = drawFrom(torch.exp(self.log_T[int(states[t-1]), :]))
-            obs[t] = self._sample_state(int(states[t]))
-        return np.int64(obs), states
+        states[:, 0] = torch.multinomial(
+            self.T0.unsqueeze(0).expand(n_seq, -1), 1).squeeze()
+        obs[:, 0] = self._sample_states(states[:, 0]).squeeze()
 
-    def _sample_state(self, s):
+        for t in range(1, n_obs):
+            states[:, t] = torch.multinomial(
+                self.T[states[:, t-1], :], 1).squeeze()
+            obs[:, t] = self._sample_states(states[:, t]).squeeze()
+
+        return obs.data.numpy(), states.data.numpy()
+
+    def _sample_states(self, s):
         """
-        Given a state, randomly samples an emission.
+        Given an array-like of states, randomly samples emissions.
         """
-        probs = torch.exp(self.log_E[:, s])
-        return np.where(np.random.multinomial(1, probs) == 1)[0][0]
+        return torch.multinomial(self.E[:, s].permute(1, 0), 1)
 
     def _belief_prop_max(self, scores):
         """
         Propagates the scores over transition matrix. Returns the indices and
         values of the max for each state.
+
+        Scores should have shape N x S, where N is the num seq and S is the
+        num states.
         """
-        return torch.max(scores.view(-1, 1) + self.log_T, 0)
+        mv, mi = torch.max(scores.unsqueeze(2).expand(-1, -1,
+                                                      self.log_T.shape[0]) +
+                           self.log_T.unsqueeze(0).expand(scores.shape[0], -1,
+                                                          -1), 1)
+        return mv.squeeze(1), mi.squeeze(1)
+        # return torch.max(scores.view(-1, 1) + self.log_T, 0)
 
     def _belief_prop_sum(self, scores):
-        return torch.logsumexp(scores.view(-1, 1) + self.log_T, 0)
+        """
+        Propagates the scores over transition matrix. Returns the indices and
+        values of the max for each state.
 
-    def _emission_ll(self, x):
+        Scores should have shape N x S, where N is the num seq and S is the
+        num states.
+        """
+        s = torch.logsumexp(scores.unsqueeze(2).expand(-1, -1,
+                                                       self.log_T.shape[0]) +
+                            self.log_T.unsqueeze(0).expand(scores.shape[0], -1,
+                                                           -1), 1)
+        return s.squeeze(1)
+        # return torch.logsumexp(scores.view(-1, 1) + self.log_T, 0)
+
+    def _emission_ll(self, X):
         """
         Log likelihood of emissions for each state.
 
+        Takes a packedsequences object.
+
         Returns a tensor of shape (num samples in x, num states).
         """
-        return self.log_E[x]
+        return self.log_E[X.data]
 
-    def _init_viterbi(self, x):
+    def _init_viterbi(self, X):
         """
         Initialize the parameters needed for _viterbi_inference.
 
         Kept seperate so initialization can be called only once when repeated
         inference calls are needed.
         """
-        N = len(x)
+        N = len(X.data)
         shape = [N, self.S]
+
+        self.batch_sizes = X.batch_sizes
 
         # Init_viterbi_variables
         self.path_states = torch.zeros(shape, dtype=torch.float64)
         self.path_scores = torch.zeros_like(self.path_states)
         self.states_seq = torch.zeros([shape[0]], dtype=torch.int64)
 
-    def _viterbi_inference(self, x):
+    def _viterbi_inference(self, X):
         """
         Compute the most likely states given the current model and a sequence
         of observations (x).
 
         Returns the most likely state numbers and path score for each state.
         """
-        N = len(x)
+        N = len(X.batch_sizes)
 
         # log probability of emission sequence
-        obs_ll_full = self._emission_ll(x)
+        obs_ll_full = self._emission_ll(X)
 
         # initialize with state starting log-priors
-        self.path_scores[0] = self.log_T0 + obs_ll_full[0]
+        self.path_scores[0:self.batch_sizes[0]] = (
+            self.log_T0 + obs_ll_full[0:self.batch_sizes[0]])
 
-        for step, obs_prob in enumerate(obs_ll_full[1:]):
-            # propagate state belief
-            max_vals, max_indices = (
-                self._belief_prop_max(self.path_scores[step, :]))
+        idx = 0
+        for step, prev_size in enumerate(self.batch_sizes[:-1]):
+            start = idx
+            mid = start + prev_size
+            end = mid + self.batch_sizes[step+1]
+            mv, mi = self._belief_prop_max(self.path_scores[start:mid])
+            self.path_states[mid:end] = mi.squeeze(1)
+            self.path_scores[mid:end] = mv + obs_ll_full[mid:end]
+            idx = mid
 
-            # the inferred state by maximizing global function
-            self.path_states[step + 1] = max_indices
+        start = torch.zeros_like(self.batch_sizes)
+        start[1:] = torch.cumsum(self.batch_sizes[:-1], 0)
+        end = torch.cumsum(self.batch_sizes, 0)
 
-            # and update state and score matrices
-            self.path_scores[step + 1] = max_vals + obs_prob
+        self.states_seq[start[N-1]:end[N-1]] = torch.argmax(
+            self.path_scores[start[N-1]:end[N-1]], 1)
 
-        # infer most likely last state
-        self.states_seq[N-1] = torch.argmax(self.path_scores[N-1, :], 0)
         for step in range(N-1, 0, -1):
-            # for every timestep retrieve inferred state
-            state = self.states_seq[step]
-            state_prob = self.path_states[step][state]
-            self.states_seq[step - 1] = state_prob
+            state = self.states_seq[start[step]:end[step]]
+            state_prob = self.path_states[start[step]:end[step]][:, state]
+
+            self.states_seq[start[step-1]:start[step-1] +
+                            self.batch_sizes[step]] = state_prob
+
+            # since we're doing packed sequencing, we need to check if
+            # any new sequences are showing up for earlier times.
+            # if so, initialize them
+            if self.batch_sizes[step] > self.batch_sizes[step-1]:
+                self.states_seq[
+                    start[step-1] +
+                    self.batch_sizes[step]:end[step-1]] = torch.argmax(
+                        self.path_scores[start[step-1] +
+                                         self.batch_sizes[step]:end[step-1]],
+                        1)
+            print(self.states_seq)
+
+        # # infer most likely last state
+        # self.states_seq[N-1] = torch.argmax(self.path_scores[N-1, :], 0)
+        # for step in range(N-1, 0, -1):
+        #     # for every timestep retrieve inferred state
+        #     state = self.states_seq[step]
+        #     state_prob = self.path_states[step][state]
+        #     self.states_seq[step - 1] = state_prob
 
         return self.states_seq, self.path_scores
 
@@ -252,20 +331,52 @@ class HiddenMarkovModel(object):
         """
         Computes the forward values.
         """
-        self.forward_ll[0] = self.log_T0 + self.obs_ll_full[0]
-        for step, obs_ll in enumerate(self.obs_ll_full[1:]):
-            self.forward_ll[step+1] = (
-                self._belief_prop_sum(self.forward_ll[step, :]) + obs_ll)
+        self.forward_ll[0:self.batch_sizes[0]] = (
+            self.log_T0 + self.obs_ll_full[0:self.batch_sizes[0]])
+
+        idx = 0
+        for step, prev_size in enumerate(self.batch_sizes[:-1]):
+            start = idx
+            mid = start + prev_size
+            end = mid + self.batch_sizes[step+1]
+            self.forward_ll[mid:end] = (
+                self._belief_prop_sum(self.forward_ll[start:mid]) +
+                self.obs_ll_full[mid:end])
+            idx = mid
+
+        # for step, obs_ll in enumerate(self.obs_ll_full[1:]):
+        #     self.forward_ll[step+1] = (
+        #         self._belief_prop_sum(self.forward_ll[step, :]) + obs_ll)
 
     def _backward(self):
         """
         Computes the backward values.
         """
-        self.backward_ll[0] = torch.ones([self.S], dtype=torch.float64)
-        for step, obs_prob in enumerate(self.obs_ll_full.flip([0, 1])[:-1]):
-            self.backward_ll[step+1] = self._belief_prop_sum(
-                self.backward_ll[step, :] + obs_prob)
-        self.backward_ll = self.backward_ll.flip([0, 1])
+        T = len(self.batch_sizes)
+        start = torch.zeros_like(self.batch_sizes)
+        start[1:] = torch.cumsum(self.batch_sizes[:-1], 0)
+        end = torch.cumsum(self.batch_sizes, 0)
+
+        self.backward_ll[start[T-1]:end[T-1]] = (
+            torch.ones([self.batch_sizes[T-1], self.S], dtype=torch.float64))
+
+        for t in range(T-1, 0, -1):
+            self.backward_ll[start[t-1]:
+                             self.batch_sizes[t]] = self._belief_prop_sum(
+                self.backward_ll[start[t]:end[t]] +
+                self.obs_ll_full[start[t]:end[t]])
+
+            if self.batch_sizes[t] < self.batch_sizes[t-1]:
+                self.backward_ll[start[t-1] +
+                                 self.batch_sizes[t]: end[t-1]] = (
+                    torch.ones([self.batch_sizes[t-1] - self.batch_sizes[t],
+                                self.S], dtype=torch.float64))
+
+        # self.backward_ll[0] = torch.ones([self.S], dtype=torch.float64)
+        # for step, obs_prob in enumerate(self.obs_ll_full.flip([0, 1])[:-1]):
+        #     self.backward_ll[step+1] = self._belief_prop_sum(
+        #         self.backward_ll[step, :] + obs_prob)
+        # self.backward_ll = self.backward_ll.flip([0, 1])
 
     def _forward_backward_inference(self, x):
         """
@@ -291,8 +402,9 @@ class HiddenMarkovModel(object):
         return self.posterior_ll
 
     def _init_forw_back(self, obs_seq):
-        N = len(obs_seq)
+        N = len(obs_seq.data)
         shape = [N, self.S]
+        self.batch_sizes = obs_seq.batch_sizes
         self.forward_ll = torch.zeros(shape, dtype=torch.float64)
         self.backward_ll = torch.zeros_like(self.forward_ll)
         self.posterior_ll = torch.zeros_like(self.forward_ll)
