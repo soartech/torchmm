@@ -118,7 +118,23 @@ class HiddenMarkovModel(object):
         """
         X_packed = pack_list(X)
         self._init_viterbi(X_packed)
-        return self._viterbi_inference(X_packed)
+        state_seq, path_ll = self._viterbi_inference(X_packed)
+        ss_packed = PackedSequence(
+            data=state_seq, batch_sizes=X_packed.batch_sizes,
+            sorted_indices=X_packed.sorted_indices,
+            unsorted_indices=X_packed.unsorted_indices)
+        ss_unpacked, ss_lengths = pad_packed_sequence(ss_packed,
+                                                      batch_first=True)
+
+        path_packed = PackedSequence(
+            data=path_ll, batch_sizes=X_packed.batch_sizes,
+            sorted_indices=X_packed.sorted_indices,
+            unsorted_indices=X_packed.unsorted_indices)
+        path_unpacked, path_lengths = pad_packed_sequence(path_packed,
+                                                          batch_first=True)
+
+        return ([ss_unpacked[i, :l] for i, l in enumerate(ss_lengths)],
+                [path_unpacked[i, :l] for i, l in enumerate(path_lengths)])
 
     def smooth(self, X):
         """
@@ -300,8 +316,9 @@ class HiddenMarkovModel(object):
 
         for step in range(N-1, 0, -1):
             state = self.states_seq[start[step]:end[step]]
-            state_prob = self.path_states[start[step]:end[step]][:, state]
-
+            state_prob = self.path_states[start[step]:end[step]]
+            state_prob = state_prob.gather(
+                1, state.unsqueeze(0).permute(1, 0)).squeeze(1)
             self.states_seq[start[step-1]:start[step-1] +
                             self.batch_sizes[step]] = state_prob
 
@@ -408,7 +425,7 @@ class HiddenMarkovModel(object):
         self.backward_ll = torch.zeros_like(self.forward_ll)
         self.posterior_ll = torch.zeros_like(self.forward_ll)
 
-    def _re_estimate_transition_ll(self, x):
+    def _re_estimate_transition_ll(self, X):
         """
         Updates the transmission probabilities, given a sequence.
 
@@ -417,7 +434,7 @@ class HiddenMarkovModel(object):
 
         Great reference: https://web.stanford.edu/~jurafsky/slp3/A.pdf
         """
-        N = len(x)
+        N = len(X.batch_sizes)
 
         # Compute T0, using normalized forward.
         log_T0_new = (self.forward_ll[0] -
@@ -472,7 +489,16 @@ class HiddenMarkovModel(object):
 
         self.obs_ll_full = self._emission_ll(obs_seq)
         self._forward_backward_inference(obs_seq)
-        self.ll_history.append(self.forward_ll[-1].sum())
+
+        # TODO Refactor this bit -- appears in at least 3 places.
+        f_ll_packed = PackedSequence(
+            data=self.forward_ll, batch_sizes=obs_seq.batch_sizes,
+            sorted_indices=obs_seq.sorted_indices,
+            unsorted_indices=obs_seq.unsorted_indices)
+        f_ll_unpacked, lengths = pad_packed_sequence(f_ll_packed,
+                                                     batch_first=True)
+        self.ll_history.append(f_ll_unpacked[:, lengths-1].squeeze(1).sum())
+        # self.ll_history.append(self.forward_ll[-1].sum())
 
         log_T0_new, log_T_new = self._re_estimate_transition_ll(obs_seq)
         log_E_new = self._re_estimate_emission_ll(obs_seq)
@@ -488,6 +514,8 @@ class HiddenMarkovModel(object):
         # for convergence testing
         self.obs_ll_full = self._emission_ll(obs_seq)
         self._forward()
+
+        # TODO Refactor this bit -- appears in at least 3 places.
         f_ll_packed = PackedSequence(
             data=self.forward_ll, batch_sizes=obs_seq.batch_sizes,
             sorted_indices=obs_seq.sorted_indices,

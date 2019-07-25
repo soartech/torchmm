@@ -10,7 +10,6 @@ def pack_list(X):
     Returns packed and padded sequences.
     """
     X = [torch.tensor(x) if not isinstance(x, torch.Tensor) else x for x in X]
-    print(X)
     return pack_sequence(X, enforce_sorted=False)
 
 

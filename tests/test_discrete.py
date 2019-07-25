@@ -117,8 +117,6 @@ def test_belief_propagation():
     T0_t = torch.tensor(T0)
     log_T0 = torch.log(T0_t)
     max_b, _ = model._belief_prop_max(log_T0.permute(1, 0))
-    print(max_b)
-    print(res.max(0))
     assert np.allclose(res.max(0), max_b.data.numpy())
 
     sum_b = model._belief_prop_sum(log_T0.permute(1, 0))
@@ -138,9 +136,9 @@ def test_decode():
     model = HiddenMarkovModel(trans, emi, p0)
 
     obs_seq = np.array([[0, 0, 1, 2, 2]])
-    states_seq, states_ll = model.decode(obs_seq)
+    states_seq, _ = model.decode(obs_seq)
 
-    most_likely_states = [states[s.item()] for s in states_seq]
+    most_likely_states = [states[s.item()] for s in states_seq[0]]
     assert most_likely_states == ['Healthy', 'Healthy', 'Healthy', 'Fever',
                                   'Fever']
 
@@ -167,10 +165,10 @@ def test_decode_aima_umbrella_example():
     obs_seq = np.array([[1, 1, 0, 1, 1]])
     states_seq, path_ll = model.decode(obs_seq)
 
-    most_likely_states = [states[s.item()] for s in states_seq]
+    most_likely_states = [states[s.item()] for s in states_seq[0]]
     assert most_likely_states == ['Rain', 'Rain', 'No Rain', 'Rain', 'Rain']
 
-    probs = torch.exp(path_ll).data.numpy()
+    probs = torch.exp(path_ll[0]).data.numpy()
     normalized = probs / probs.sum(axis=1)[:, np.newaxis]
 
     correct = np.array([[0.18181818, 0.81818182],
@@ -354,8 +352,6 @@ def test_baum_welch():
 
     # pred = (1 - state_summary[-2]) > 0.5
     pred = states_seq.data.numpy()
-    print(pred)
-    print(states)
     accuracy = np.mean(pred == states)
     print("Accuracy: ", accuracy)
     assert accuracy >= 0.9 or accuracy <= 0.1
@@ -372,10 +368,10 @@ def test_viterbi_training():
                        [0.05, 0.95]])
 
     true_model = HiddenMarkovModel(True_T, True_E, True_pi)
-    obs_seq, states = true_model.sample(1, 500)
+    obs_seq, states = true_model.sample(50, 100)
 
-    print("First 10 Obersvations:  ", obs_seq[:10])
-    print("First 10 Hidden States: ", states[:10])
+    print("First 5 Obersvations:  ", obs_seq[1, :5])
+    print("First 5 Hidden States: ", states[1, :5])
 
     init_pi = np.array([0.5, 0.5])
 
@@ -386,7 +382,7 @@ def test_viterbi_training():
                        [0.4, 0.7]])
 
     model = HiddenMarkovModel(init_T, init_E, init_pi,
-                              epsilon=0.1, maxStep=10)
+                              epsilon=0.1, maxStep=50)
 
     trans0, transition, emission, converge = model.fit(obs_seq, alg="viterbi")
 
@@ -408,15 +404,14 @@ def test_viterbi_training():
 
     assert converge
 
-    states_seq, path_ll = model.decode(obs_seq)
+    states_seq, _ = model.decode(obs_seq)
 
     # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
     #                           range(len(model.prob_state_1))])
 
     # pred = (1 - state_summary[-2]) > 0.5
-    pred = states_seq.data.numpy()
-    print(pred)
-    print(states)
-    accuracy = np.mean(pred == states)
+    pred = torch.cat(states_seq, 0).data.numpy()
+    true = np.concatenate(states, 0)
+    accuracy = np.mean(np.abs(pred - true))
     print("Accuracy: ", accuracy)
     assert accuracy >= 0.9 or accuracy <= 0.1
