@@ -109,12 +109,6 @@ class HiddenMarkovModel(object):
 
         .. todo::
             Modify this doc comment based on how we decide to pack/pad X.
-
-        Parameters:
-            * X (array-like, (n_sequences, n_observations, n_features)) - the
-            sequence data.
-            * lengths (array-like, integer lengths of each sequence
-            (n_sequences,)) - Lengths of the individual sequences in X.
         """
         X_packed = pack_list(X)
         self._init_viterbi(X_packed)
@@ -144,11 +138,18 @@ class HiddenMarkovModel(object):
         .. todo::
             Update this doc comment and update to reflect packed and padded seq
         """
-        packed = pack_list(X)
-        self._init_forw_back(packed)
-        self.obs_ll_full = self._emission_ll(packed)
-        self._forward_backward_inference(packed)
-        return self.posterior_ll
+        X_packed = pack_list(X)
+        self._init_forw_back(X_packed)
+        self.obs_ll_full = self._emission_ll(X_packed)
+        self._forward_backward_inference(X_packed)
+
+        post_packed = PackedSequence(
+            data=self.posterior_ll, batch_sizes=X_packed.batch_sizes,
+            sorted_indices=X_packed.sorted_indices,
+            unsorted_indices=X_packed.unsorted_indices)
+        post_unpacked, post_lengths = pad_packed_sequence(post_packed,
+                                                          batch_first=True)
+        return [post_unpacked[i, :l] for i, l in enumerate(post_lengths)]
 
     def filter(self, X):
         """
@@ -377,7 +378,7 @@ class HiddenMarkovModel(object):
             torch.ones([self.batch_sizes[T-1], self.S], dtype=torch.float64))
 
         for t in range(T-1, 0, -1):
-            self.backward_ll[start[t-1]:
+            self.backward_ll[start[t-1]:start[t-1] +
                              self.batch_sizes[t]] = self._belief_prop_sum(
                 self.backward_ll[start[t]:end[t]] +
                 self.obs_ll_full[start[t]:end[t]])
@@ -434,15 +435,23 @@ class HiddenMarkovModel(object):
 
         Great reference: https://web.stanford.edu/~jurafsky/slp3/A.pdf
         """
-        N = len(X.batch_sizes)
+        T = len(self.batch_sizes)
+        start = torch.zeros_like(self.batch_sizes)
+        start[1:] = torch.cumsum(self.batch_sizes[:-1], 0)
+        end = torch.cumsum(self.batch_sizes, 0)
 
         # Compute T0, using normalized forward.
-        log_T0_new = (self.forward_ll[0] -
-                      torch.logsumexp(self.forward_ll[0], 0))
+        log_T0_new = (self.forward_ll[start[0]:end[0]] -
+                      torch.logsumexp(self.forward_ll[start[0]:end[0]], 0))
+        print('T0')
+        print(log_T0_new)
+
+        # log_T0_new = (self.forward_ll[0] -
+        #               torch.logsumexp(self.forward_ll[0], 0))
 
         # Compute expected transitions
         M_ll = (self.forward_ll[:-1].unsqueeze(2).expand(-1, -1, 2) +
-                self.log_T.expand(N-1, -1, -1) +
+                self.log_T.expand(T-1, -1, -1) +
                 self.obs_ll_full[1:].unsqueeze(2).expand(-1, -1, 2) +
                 self.backward_ll[1:].unsqueeze(2).expand(-1, -1, 2))
 
@@ -455,7 +464,7 @@ class HiddenMarkovModel(object):
 
         return log_T0_new, log_T_new
 
-    def _re_estimate_emission_ll(self, x):
+    def _re_estimate_emission_ll(self, X):
         """
         Updates the emission probabilities, given an X.
 
@@ -472,8 +481,8 @@ class HiddenMarkovModel(object):
 
         # One hot encoding buffer that you create out of the loop and just keep
         # reusing
-        seq_one_hot = torch.zeros([len(x), self.Obs], dtype=torch.float64)
-        seq_one_hot.scatter_(1, torch.tensor(x).unsqueeze(1), 1)
+        seq_one_hot = torch.zeros([len(X.data), self.Obs], dtype=torch.float64)
+        seq_one_hot.scatter_(1, X.data.unsqueeze(1), 1)
         emission_score = torch.matmul(seq_one_hot.transpose_(1, 0), gamma)
 
         new_E = torch.log(emission_score / states_marginal)
@@ -549,12 +558,15 @@ class HiddenMarkovModel(object):
                                t_counts.sum(1).view(-1, 1))
 
         # emission
+        self._update_emissions_viterbi_training(states, obs_seq)
+
+        return self.converged
+
+    def _update_emissions_viterbi_training(self, states, obs_seq):
         emit_counts = torch.zeros_like(self.log_E)
         for i, s in enumerate(states):
             emit_counts[obs_seq.data[i], s] += 1
         self.log_E = torch.log(emit_counts / emit_counts.sum(0))
-
-        return self.converged
 
     def _viterbi_training(self, obs_seq):
 

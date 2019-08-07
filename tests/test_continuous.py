@@ -4,42 +4,48 @@ import numpy as np
 # import pandas as pd
 from scipy.special import logsumexp
 
-from torchmm.discrete import HiddenMarkovModel
+from torchmm.continuous import GaussianHMM
 
 
 def test_init():
     good_pi = np.array([1.0, 0.0])
-    good_T = np.array([[1.0, 0.0], [0.0, 1.0]])
-    good_E = np.array([[1.0, 0.0], [0.0, 1.0]])
+    good_T = np.array([[1.0, 0.0],
+                       [0.0, 1.0]])
+    good_mu = np.array([[1.0, 0.0],
+                        [0.0, 1.0]])
+    good_sd = np.array([[1.0, 1.0],
+                        [1.0, 1.0]])
 
     bad1_pi = np.array([1.0, 1.0])
-    bad1_T = np.array([[1.0, 1.0], [1.0, 1.0]])
-    bad1_E = np.array([[1.0, 1.0], [1.0, 1.0]])
+    bad1_T = np.array([[1.0, 1.0],
+                       [1.0, 1.0]])
+    bad_mu = np.array([[0.0, 1.0]])
+    bad_sd = np.array([[1.0, 1.0]])
 
     bad2_pi = np.array([1.0])
-    bad2_T = np.array([[1.0], [1.0]])
-    bad2_E = np.array([[1.0], [1.0]])
+    bad2_T = np.array([[1.0],
+                       [1.0]])
 
-    HiddenMarkovModel(good_T, good_E, good_pi)
-
-    with pytest.raises(ValueError):
-        HiddenMarkovModel(bad1_T, good_E, good_pi)
-    with pytest.raises(ValueError):
-        HiddenMarkovModel(good_T, bad1_E, good_pi)
-    with pytest.raises(ValueError):
-        HiddenMarkovModel(good_T, good_E, bad1_pi)
+    GaussianHMM(good_T, good_mu, good_sd, good_pi)
 
     with pytest.raises(ValueError):
-        HiddenMarkovModel(bad2_T, good_E, good_pi)
+        GaussianHMM(bad1_T, good_mu, good_sd, good_pi)
     with pytest.raises(ValueError):
-        HiddenMarkovModel(good_T, bad2_E, good_pi)
+        GaussianHMM(good_T, bad_mu, good_sd, good_pi)
     with pytest.raises(ValueError):
-        HiddenMarkovModel(good_T, good_E, bad2_pi)
+        GaussianHMM(good_T, good_mu, bad_sd, good_pi)
+    with pytest.raises(ValueError):
+        GaussianHMM(good_T, good_mu, good_sd, bad1_pi)
 
     with pytest.raises(ValueError):
-        HiddenMarkovModel(good_T, good_E, good_pi, epsilon=0)
+        GaussianHMM(bad2_T, good_mu, good_sd, good_pi)
     with pytest.raises(ValueError):
-        HiddenMarkovModel(good_T, good_E, good_pi, maxStep=0)
+        GaussianHMM(good_T, good_mu, good_sd, bad2_pi)
+
+    with pytest.raises(ValueError):
+        GaussianHMM(good_T, good_mu, good_sd, good_pi, epsilon=0)
+    with pytest.raises(ValueError):
+        GaussianHMM(good_T, good_mu, good_sd, good_pi, maxStep=0)
 
 
 def test_sample():
@@ -52,7 +58,7 @@ def test_sample():
     True_E = np.array([[1.0, 0.0],
                        [0.0, 1.0]])
 
-    true_model = HiddenMarkovModel(True_T, True_E, True_pi)
+    true_model = GaussianHMM(True_T, True_E, True_pi)
     obs_seq, states = true_model.sample(3, 10)
 
     assert obs_seq.shape == (3, 10)
@@ -68,7 +74,7 @@ def test_sample():
     True_E = np.array([[1.0, 0.0],
                        [0.0, 1.0]])
 
-    true_model = HiddenMarkovModel(True_T, True_E, True_pi)
+    true_model = GaussianHMM(True_T, True_E, True_pi)
     obs_seq, states = true_model.sample(4, 20)
 
     assert obs_seq.shape == (4, 20)
@@ -84,7 +90,7 @@ def test_sample():
     True_E = np.array([[1.0, 0.0],
                        [0.0, 1.0]])
 
-    true_model = HiddenMarkovModel(True_T, True_E, True_pi)
+    true_model = GaussianHMM(True_T, True_E, True_pi)
     obs_seq, states = true_model.sample(1, 20)
 
     assert obs_seq.shape == (1, 20)
@@ -108,7 +114,7 @@ def test_belief_propagation():
     # T = np.array([[1, 0], [0, 1]])
     # E = np.array([[1, 0], [0, 1]])
 
-    model = HiddenMarkovModel(T, E, T0)
+    model = GaussianHMM(T, E, T0)
 
     # compute max path from each node to each node
     # will give a matrix, row is the source col is the dest
@@ -133,7 +139,7 @@ def test_decode():
                     [0.1, 0.6]])
     trans = np.array([[0.7, 0.3],
                       [0.4, 0.6]])
-    model = HiddenMarkovModel(trans, emi, p0)
+    model = GaussianHMM(trans, emi, p0)
 
     obs_seq = np.array([[0, 0, 1, 2, 2]])
     states_seq, _ = model.decode(obs_seq)
@@ -160,7 +166,7 @@ def test_decode_aima_umbrella_example():
                     [0.2, 0.9]])
     trans = np.array([[0.7, 0.3],
                       [0.3, 0.7]])
-    model = HiddenMarkovModel(trans, emi, p0)
+    model = GaussianHMM(trans, emi, p0)
 
     obs_seq = np.array([[1, 1, 0, 1, 1]])
     states_seq, path_ll = model.decode(obs_seq)
@@ -196,7 +202,7 @@ def test_filter_aima_umbrella_example():
                     [0.2, 0.9]])
     trans = np.array([[0.7, 0.3],
                       [0.3, 0.7]])
-    model = HiddenMarkovModel(trans, emi, p0)
+    model = GaussianHMM(trans, emi, p0)
 
     obs_seq = np.array([[1]])
     posterior = model.filter(obs_seq)
@@ -228,7 +234,7 @@ def test_score_aima_umbrella_example():
                     [0.2, 0.9]])
     trans = np.array([[0.7, 0.3],
                       [0.3, 0.7]])
-    model = HiddenMarkovModel(trans, emi, p0)
+    model = GaussianHMM(trans, emi, p0)
 
     obs_seq = np.array([[1]])
     ll_score = model.score(obs_seq)
@@ -256,7 +262,7 @@ def test_predict_aima_umbrella_example():
                     [0.2, 0.9]])
     trans = np.array([[0.7, 0.3],
                       [0.3, 0.7]])
-    model = HiddenMarkovModel(trans, emi, p0)
+    model = GaussianHMM(trans, emi, p0)
 
     obs_seq = np.array([[1]])
     posterior = model.predict(obs_seq)
@@ -284,7 +290,7 @@ def test_smooth():
     trans = np.array([[0.7, 0.3],
                       [0.3, 0.7]])
 
-    model = HiddenMarkovModel(trans, emi, p0)
+    model = GaussianHMM(trans, emi, p0)
     obs_seq = np.array([[1, 1]])
 
     # New approach
@@ -307,7 +313,7 @@ def test_baum_welch():
     True_E = np.array([[0.95, 0.05],
                        [0.05, 0.95]])
 
-    true_model = HiddenMarkovModel(True_T, True_E, True_pi)
+    true_model = GaussianHMM(True_T, True_E, True_pi)
     obs_seq, states = true_model.sample(10, 100)
 
     print("First 5 Observations:  ", obs_seq[0, :5])
@@ -321,8 +327,8 @@ def test_baum_welch():
     init_E = np.array([[0.6, 0.3],
                        [0.4, 0.7]])
 
-    model = HiddenMarkovModel(init_T, init_E, init_pi,
-                              epsilon=0.1, maxStep=100)
+    model = GaussianHMM(init_T, init_E, init_pi,
+                        epsilon=0.1, maxStep=100)
 
     trans0, transition, emission, converge = model.fit(obs_seq,
                                                        alg="baum_welch")
@@ -369,7 +375,7 @@ def test_viterbi_training():
     True_E = np.array([[0.95, 0.05],
                        [0.05, 0.95]])
 
-    true_model = HiddenMarkovModel(True_T, True_E, True_pi)
+    true_model = GaussianHMM(True_T, True_E, True_pi)
     obs_seq, states = true_model.sample(50, 100)
 
     print("First 5 Obersvations:  ", obs_seq[0, :5])
@@ -383,8 +389,8 @@ def test_viterbi_training():
     init_E = np.array([[0.6, 0.3],
                        [0.4, 0.7]])
 
-    model = HiddenMarkovModel(init_T, init_E, init_pi,
-                              epsilon=0.1, maxStep=50)
+    model = GaussianHMM(init_T, init_E, init_pi,
+                        epsilon=0.1, maxStep=50)
 
     trans0, transition, emission, converge = model.fit(obs_seq, alg="viterbi")
 
