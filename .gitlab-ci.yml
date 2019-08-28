@@ -8,7 +8,7 @@ flake8:
   stage: lint
   allow_failure: true
   script:
-    - pip3 install flake8 flake8-junit-report
+    - pip install flake8 flake8-junit-report
     - retval=0
     - flake8 --output-file flake8.txt foo/ || retval=$?
     - flake8_junit flake8.txt flake8_junit.xml
@@ -23,11 +23,11 @@ flake8:
 pytest:
   stage: test
   script:
-    - pip3 install -r requirements.txt
-    - pip3 install -r test-requirements.txt
-      #- pip3 install tox
+    - pip install -r requirements.txt
+    - pip install -r test-requirements.txt
+      #- pip install tox
       #- tox
-    - python3 -m pytest
+    - python -m pytest
   artifacts:
     when: always
     reports:
@@ -40,7 +40,7 @@ sphinx:
   dependencies:
     - flake8
   script:
-    - pip3 install -r docs/doc-requirements.txt
+    - pip install -r docs/doc-requirements.txt
     - apt-get install make
     - cd docs
     - make html
@@ -58,8 +58,8 @@ coverage:
   dependencies:
     - pytest
   script:
-    - pip3 install -r test_requirements.txt
-    - pip3 install coverage
+    - pip install -r test_requirements.txt
+    - pip install coverage
     - coverage run --source hmm_torch -m pytest
     - coverage html -d coverage
     - coverage report
