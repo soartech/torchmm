@@ -59,9 +59,9 @@ coverage:
   dependencies:
     - pytest
   script:
-    - pip install -r test_requirements.txt
-    - pip install coverage
-    - coverage run --source hmm_torch -m pytest
+    - pip install -r requirements.txt
+    - pip install -r test-requirements.txt
+    - coverage run --source torchmm -m pytest
     - coverage html -d coverage
     - coverage report
   coverage: '/\d+\%\s*$/'
