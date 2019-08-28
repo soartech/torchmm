@@ -12,7 +12,7 @@ TorCHmM
      :alt: Pipeline Status
 
 .. image:: https://hq-git.soartech.com/chris.maclellan/hmm_torch/badges/master/coverage.svg
-     :target: https://hq-git.soartech.com/chris.maclellan/hmm_torch/commits/master
+     :target: https://chris.maclellan.hq-git.soartech.com/TorCHmM/coverage/
      :alt: Coverage Report
 
 A PyTorch implementation of various hidden Markov model inference and learning algorithms.
