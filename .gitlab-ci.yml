@@ -3,7 +3,7 @@ before_script:
 
 stages:
   - lint
-    #   - test
+  - test
   - document
   - deploy
 
@@ -21,22 +21,22 @@ flake8:
     reports:
       junit: flake8_junit.xml
   tags:
-    - html
+    - pytorch
 
-      # pytest:
-      #   stage: test
-      #   script:
-      #     - pip3 install -r requirements.txt
-      #     - pip3 install -r test-requirements.txt
-      #       #- pip3 install tox
-      #       #- tox
-      #     - python3 -m pytest
-      #   artifacts:
-      #     when: always
-      #     reports:
-      #       junit: output.xml
-      #   tags:
-      #     - html
+pytest:
+  stage: test
+  script:
+    - pip3 install -r requirements.txt
+    - pip3 install -r test-requirements.txt
+      #- pip3 install tox
+      #- tox
+    - python3 -m pytest
+  artifacts:
+    when: always
+    reports:
+      junit: output.xml
+  tags:
+    - pytorch
 
 sphinx:
   stage: document
@@ -52,35 +52,35 @@ sphinx:
     paths:
       - sphinx
   tags:
-    - html
+    - pytorch
   only:
     - master
 
-      # coverage:
-      #   stage: document
-      #   dependencies:
-      #     - pytest
-      #   script:
-      #     - pip3 install -r test_requirements.txt
-      #     - pip3 install coverage
-      #     - coverage run --source hmm_torch -m pytest
-      #     - coverage html -d coverage
-      #     - coverage report
-      #   coverage: '/\d+\%\s*$/'
-      #   artifacts:
-      #     paths:
-      #       - coverage
-      #   tags:
-      #     - html
+coverage:
+  stage: document
+  dependencies:
+    - pytest
+  script:
+    - pip3 install -r test_requirements.txt
+    - pip3 install coverage
+    - coverage run --source hmm_torch -m pytest
+    - coverage html -d coverage
+    - coverage report
+  coverage: '/\d+\%\s*$/'
+  artifacts:
+    paths:
+      - coverage
+  tags:
+    - pytorch
 
 pages:
   stage: deploy
   dependencies:
     - sphinx
-      # - coverage
+    - coverage
   script:
     - mv sphinx public/
-    # - mv coverage public/coverage
+    - mv coverage public/coverage
   environment:
     name: pages
     url: https://git.hq-git.soartech.com/TorCHmM/
@@ -88,6 +88,6 @@ pages:
     paths:
       - public
   tags: 
-    - html
+    - pytorch
   only:
     - master
