@@ -13,7 +13,7 @@ flake8:
     # - flake8 --output-file flake8.txt torchmm/ || retval=$?
     - flake8 --output-file flake8.txt torchmm/
     - flake8_junit flake8.txt flake8_junit.xml
-    # - exit "$retval"
+      # - exit "$retval"
   artifacts:
     when: always
     reports:
@@ -57,6 +57,7 @@ sphinx:
 
 coverage:
   stage: document
+  allow_failure: true
   dependencies:
     - pytest
   script:
