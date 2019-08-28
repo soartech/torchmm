@@ -9,10 +9,11 @@ flake8:
   allow_failure: true
   script:
     - pip install flake8 flake8-junit-report
-    - retval=0
-    - flake8 --output-file flake8.txt foo/ || retval=$?
+    # - retval=0
+    # - flake8 --output-file flake8.txt torchmm/ || retval=$?
+    - flake8 --output-file flake8.txt torchmm/
     - flake8_junit flake8.txt flake8_junit.xml
-    - exit "$retval"
+    # - exit "$retval"
   artifacts:
     when: always
     reports:
