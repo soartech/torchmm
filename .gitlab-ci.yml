@@ -67,7 +67,7 @@ coverage:
     - coverage run --source torchmm -m pytest || retval=$?
     - coverage html -d coverage
     - coverage report
-    - exit "$retval"
+      # - exit "$retval"
   coverage: '/\d+\%\s*$/'
   artifacts:
     paths:
