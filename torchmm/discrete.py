@@ -497,8 +497,8 @@ class HiddenMarkovModel(object):
 
     @property
     def converged(self):
-        return (len(self.ll_history) == 2 and self.ll_history[-2] -
-                self.ll_history[-1] < self.epsilon)
+        return (len(self.ll_history) >= 2 and abs(self.ll_history[-2] -
+                self.ll_history[-1]) < self.epsilon)
 
     def _expectation_maximization_step(self, obs_seq):
 
@@ -684,7 +684,7 @@ if __name__ == "__main__":
                        [0.01, 0.95]])
 
     true_model = HiddenMarkovModel(True_T, True_E, True_pi)
-    obs_seq, states = true_model.sample(50, 100)
+    obs_seq, states = true_model.sample(100, 50)
 
     print("First 5 Obersvations:  ", obs_seq[0, :5])
     print("First 5 Hidden States: ", states[0, :5])
