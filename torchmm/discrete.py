@@ -497,8 +497,8 @@ class HiddenMarkovModel(object):
 
     @property
     def converged(self):
-        return (len(self.ll_history) >= 2 and abs(self.ll_history[-2] -
-                self.ll_history[-1]) < self.epsilon)
+        return (len(self.ll_history) >= 2 and
+                abs(self.ll_history[-2] - self.ll_history[-1]) < self.epsilon)
 
     def _expectation_maximization_step(self, obs_seq):
 
@@ -538,7 +538,8 @@ class HiddenMarkovModel(object):
         f_ll_unpacked, lengths = pad_packed_sequence(f_ll_packed,
                                                      batch_first=True)
         self.ll_history.append(
-            f_ll_unpacked[torch.arange(f_ll_unpacked.size(0)), lengths-1].logsumexp(1).sum(0).item())
+            f_ll_unpacked[torch.arange(f_ll_unpacked.size(0)),
+                          lengths-1].logsumexp(1).sum(0).item())
         # self.ll_history.append(self.forward_ll[-1].sum())
 
         # do the updating
@@ -674,6 +675,7 @@ class HiddenMarkovModel(object):
         # plt.show()
 
         return self.log_T0, self.log_T, self.log_E, self.converged
+
 
 if __name__ == "__main__":
     True_pi = np.array([0.75, 0.25])
