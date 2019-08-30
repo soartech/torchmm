@@ -339,89 +339,10 @@ class HiddenMarkovModel(object):
         self.backward_ll = torch.zeros_like(self.forward_ll)
         self.posterior_ll = torch.zeros_like(self.forward_ll)
 
-    def _re_estimate_transition_ll(self, X):
-        """
-        Updates the transmission probabilities, given a sequence.
-
-        Assumes the forward backward step has already been run and
-        self.forward_ll, self.backward_ll, and self.posterior_ll are set.
-
-        Great reference: https://web.stanford.edu/~jurafsky/slp3/A.pdf
-        """
-        N = X.shape[0]
-        T = X.shape[1]
-
-        # Compute T0, using normalized forward.
-        log_T0_new = (self.forward_ll[:, 0].logsumexp(0) -
-                      torch.logsumexp(self.forward_ll[:, 0], (0, 1)))
-
-        # Compute expected transitions
-        M_ll = (self.forward_ll[:, :-1].unsqueeze(3).expand(-1, -1, -1, 2) +
-                self.log_T.expand(N, T-1, -1, -1) +
-                self.obs_ll_full[:, 1:].unsqueeze(3).expand(-1, -1, -1, 2) +
-                self.backward_ll[:, 1:].unsqueeze(3).expand(-1, -1, -1, 2))
-
-        denom = self.posterior_ll[:, :-1].logsumexp(2)
-        M_ll -= denom.unsqueeze(2).unsqueeze(3).expand(-1, -1, self.S, self.S)
-
-        # Update log_T
-        log_T_new = (torch.logsumexp(M_ll, (0, 1)) -
-                     torch.logsumexp(M_ll, (0, 1, 3)).view(-1, 1))
-
-        return log_T0_new, log_T_new
-
-    def _re_estimate_emission_ll(self, X):
-        """
-        Updates the emission probabilities, given an X.
-
-        Assumes the forward-backward step has already been run and
-        self.posterior_ll is updated.
-
-        TODO:
-            - Rewrite emission score in terms of log prob
-        """
-        # m = torch.logsumexp(self.posterior_ll, (0, 1))
-        # gamma_ll = self.posterior_ll.logsumexp(0) - m.view(-1, 1)
-        gamma_ll = (self.posterior_ll -
-                    self.forward_ll[:, -1, :].logsumexp(1).sum(0))
-        gamma = torch.exp(gamma_ll)
-        states_marginal = gamma.sum((0, 1))
-
-        # One hot encoding buffer that you create out of the loop and just keep
-        # reusing
-        seq_one_hot = torch.zeros([X.shape[0] * X.shape[1], self.Obs],
-                                  dtype=torch.float64)
-        seq_one_hot.scatter_(1, X.view(-1).unsqueeze(1), 1)
-        emission_score = torch.matmul(seq_one_hot.transpose_(1, 0),
-                                      gamma.view(-1, gamma.shape[2]))
-
-        new_E = torch.log(emission_score / states_marginal)
-        # print(new_E.exp())
-        return new_E
-
     @property
     def converged(self):
         return (len(self.ll_history) >= 2 and abs(self.ll_history[-2] -
                 self.ll_history[-1]) < self.epsilon)
-
-    # def _expectation_maximization_step(self, obs_seq):
-
-    #     self.obs_ll_full = self._emission_ll(obs_seq)
-    #     self._forward_backward_inference(obs_seq)
-    #     self.ll_history.append(
-    #         self.forward_ll[:, -1, :].logsumexp(1).sum(0).item())
-
-    #     log_T0_new, log_T_new = self._re_estimate_transition_ll(obs_seq)
-    #     log_E_new = self._re_estimate_emission_ll(obs_seq)
-    #     # print("NEW E", log_E_new.exp())
-    #     # print("NEW T", log_T_new.exp())
-    #     # print("NEW T0", log_T0_new.exp())
-
-    #     self.log_T0 = log_T0_new
-    #     self.log_E = log_E_new
-    #     self.log_T = log_T_new
-
-    #     return self.converged
 
     def _viterbi_training_step(self, X):
 
@@ -433,21 +354,6 @@ class HiddenMarkovModel(object):
 
         # do the updating
         states, _ = self._viterbi_inference(X)
-        print()
-        print("BEEP")
-        print("T0 Matrix: ")
-        print(self.log_T0.exp())
-
-        print("Transition Matrix: ")
-        print(self.log_T.exp())
-        # assert np.allclose(transition.exp().data.numpy(), True_T, atol=0.1)
-        print()
-        print("Emission Matrix: ")
-        print(self.log_E.exp())
-
-        print(X[0])
-        print(states[0])
-        print()
 
         # start prob
         s_counts = states[:, 0].bincount(minlength=self.S)
@@ -497,22 +403,6 @@ class HiddenMarkovModel(object):
         print('HISTORY!')
         print(self.ll_history)
         return self.log_T0, self.log_T, self.log_E, converged
-
-    # def _baum_welch(self, obs_seq):
-    #     # initialize variables
-    #     self._init_forw_back(obs_seq)
-
-    #     # used for convergence testing.
-    #     self.ll_history = []
-
-    #     converged = False
-
-    #     for i in range(self.maxStep):
-    #         converged = self._expectation_maximization_step(obs_seq)
-    #         if converged:
-    #             print('converged at step {}'.format(i))
-    #             break
-    #     return self.log_T0, self.log_T, self.log_E, converged
 
     def _autograd(self, X):
         # X = torch.tensor(X)
