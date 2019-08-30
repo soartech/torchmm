@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.optim as optim
 
 from torchmm.utils import pack_list
 from torch.nn.utils.rnn import PackedSequence
@@ -90,7 +91,7 @@ class HiddenMarkovModel(object):
         emission_params = self.T.shape[0] * (self.E.shape[0] - 1)
         return init_params + transition_params + emission_params
 
-    def fit(self, X, lengths=None, alg="baum_welch"):
+    def fit(self, X, lengths=None, alg="viterbi"):
         """
         Learn new model parameters from X using the specified alg.
 
@@ -100,8 +101,12 @@ class HiddenMarkovModel(object):
 
         if alg == 'baum_welch':
             return self._baum_welch(packed_X)
-        else:
+        elif alg == 'viterbi':
             return self._viterbi_training(packed_X)
+        elif alg == 'autograd':
+            return self._autograd(X)
+        else:
+            raise Exception("Unknown alg")
 
     def decode(self, X):
         """
@@ -173,7 +178,8 @@ class HiddenMarkovModel(object):
             unsorted_indices=X_packed.unsorted_indices)
         f_ll_unpacked, lengths = pad_packed_sequence(f_ll_packed,
                                                      batch_first=True)
-        return f_ll_unpacked[:, lengths-1].squeeze(1)
+
+        return f_ll_unpacked[torch.arange(f_ll_unpacked.size(0)), lengths-1]
 
     def predict(self, X):
         """
@@ -196,7 +202,7 @@ class HiddenMarkovModel(object):
         .. todo::
             Update this doc comment.
         """
-        return self.filter(X).sum().item()
+        return self.filter(X).logsumexp(1).sum(0)
 
     def sample(self, n_seq, n_obs):
         """
@@ -217,7 +223,7 @@ class HiddenMarkovModel(object):
                 self.T[states[:, t-1], :], 1).squeeze()
             obs[:, t] = self._sample_states(states[:, t]).squeeze()
 
-        return obs.data.numpy(), states.data.numpy()
+        return obs, states
 
     def _sample_states(self, s):
         """
@@ -491,8 +497,8 @@ class HiddenMarkovModel(object):
 
     @property
     def converged(self):
-        return (len(self.ll_history) == 2 and self.ll_history[-2] -
-                self.ll_history[-1] < self.epsilon)
+        return (len(self.ll_history) >= 2 and
+                abs(self.ll_history[-2] - self.ll_history[-1]) < self.epsilon)
 
     def _expectation_maximization_step(self, obs_seq):
 
@@ -531,7 +537,9 @@ class HiddenMarkovModel(object):
             unsorted_indices=obs_seq.unsorted_indices)
         f_ll_unpacked, lengths = pad_packed_sequence(f_ll_packed,
                                                      batch_first=True)
-        self.ll_history.append(f_ll_unpacked[:, lengths-1].squeeze(1).sum())
+        self.ll_history.append(
+            f_ll_unpacked[torch.arange(f_ll_unpacked.size(0)),
+                          lengths-1].logsumexp(1).sum(0).item())
         # self.ll_history.append(self.forward_ll[-1].sum())
 
         # do the updating
@@ -605,3 +613,124 @@ class HiddenMarkovModel(object):
                 print('converged at step {}'.format(i))
                 break
         return self.log_T0, self.log_T, self.log_E, converged
+
+    def _autograd(self, X):
+        # X = torch.tensor(X)
+        # self.forward_ll = torch.zeros([X.shape[0], X.shape[1], self.S],
+        #                               dtype=torch.float64)
+        # self.obs_ll_full = self._emission_ll(X)
+        self.ll_history = []
+
+        inner_T = self.log_T.softmax(1).log()
+        inner_E = self.log_E.softmax(0).log()
+        inner_T0 = self.log_T0.softmax(0).log()
+        inner_T.requires_grad_(True)
+        inner_E.requires_grad_(True)
+        inner_T0.requires_grad_(True)
+        self.log_T0 = inner_T0.softmax(0).log()
+        self.log_T = inner_T.softmax(1).log()
+        self.log_E = inner_E.softmax(0).log()
+        # optimizer = optim.SGD([inner_T0, inner_E, inner_T], lr=1e-3)
+        optimizer = optim.AdamW([inner_T0, inner_E, inner_T], lr=1)
+
+        # self.log_T0.requires_grad_(True)
+        # self.log_E.requires_grad_(True)
+        # self.log_T.requires_grad_(True)
+        # optimizer = optim.SGD([self.log_T0, self.log_E, self.log_T], lr=1e-3)
+
+        # optimizers = [optim.SGD([self.log_T0], lr=1e-1),
+        # optim.SGD([self.log_E], lr=1e-1),
+        # optim.SGD([self.log_T], lr=1e-1)]
+        for i in range(self.maxStep):
+            # print("CONVERGED", self.converged)
+            if self.converged:
+                break
+            # print()
+            print("STEP %i of %i" % (i, self.maxStep))
+            # optimizer = np.random.choice(optimizers)
+            ll = self.score(X)
+            self.ll_history.append(ll.item())
+            loss = -1 * ll
+
+            # print(ll)
+            print("loss: ", loss)
+            # print("T0: ", self.log_T0, self.log_T0.exp())
+            # # print("T: ", self.log_T, self.log_T.exp())
+            # # print("E: ", self.log_E, self.log_E.exp())
+            # print('GRAD T0: ', self.log_T0.grad)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            # self.log_T0.data -= self.log_T0.data.logsumexp(0)
+            # self.log_T.data -= self.log_T.data.logsumexp(1)
+            # self.log_E.data -= self.log_E.data.logsumexp(0)
+
+            self.log_T0 = inner_T0.softmax(0).log()
+            self.log_T = inner_T.softmax(1).log()
+            self.log_E = inner_E.softmax(0).log()
+        # print('LL HISTORY', self.ll_history[-3:])
+        # from matplotlib import pyplot as plt
+        # plt.plot(self.ll_history)
+        # plt.show()
+
+        return self.log_T0, self.log_T, self.log_E, self.converged
+
+
+if __name__ == "__main__":
+    True_pi = np.array([0.75, 0.25])
+
+    True_T = np.array([[0.85, 0.15],
+                       [0.12, 0.88]])
+
+    True_E = np.array([[0.99, 0.05],
+                       [0.01, 0.95]])
+
+    true_model = HiddenMarkovModel(True_T, True_E, True_pi)
+    obs_seq, states = true_model.sample(100, 50)
+
+    print("First 5 Obersvations:  ", obs_seq[0, :5])
+    print("First 5 Hidden States: ", states[0, :5])
+
+    init_pi = np.array([0.5, 0.5])
+
+    init_T = np.array([[0.6, 0.4],
+                       [0.5, 0.5]])
+
+    init_E = np.array([[0.5, 0.5],
+                       [0.5, 0.5]])
+
+    model = HiddenMarkovModel(init_T, init_E, init_pi,
+                              epsilon=1e-2, maxStep=500)
+
+    trans0, transition, emission, converge = model.fit(obs_seq, alg="autograd")
+
+    # Not enough samples (only 1) to test
+    # assert np.allclose(trans0.data.numpy(), True_pi)
+    print("Pi Matrix: ")
+    print(trans0.exp())
+
+    print("Transition Matrix: ")
+    print(transition.exp())
+    # assert np.allclose(transition.exp().data.numpy(), True_T, atol=0.1)
+    print()
+    print("Emission Matrix: ")
+    print(emission.exp())
+    # assert np.allclose(emission.exp().data.numpy(), True_E, atol=0.1)
+    print()
+    print("Reached Convergence: ")
+    print(converge)
+
+    states_seq, _ = model.decode(obs_seq)
+
+    # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
+    #                           range(len(model.prob_state_1))])
+
+    # pred = (1 - state_summary[-2]) > 0.5
+    # pred = torch.cat(states_seq, 0).data.numpy()
+    # true = np.concatenate(states, 0)
+    pred = torch.stack(states_seq)
+    # pred = states_seq
+    true = states
+    accuracy = torch.mean(torch.abs(pred - true).float())
+    print("Accuracy: ", accuracy)

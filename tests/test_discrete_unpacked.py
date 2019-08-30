@@ -4,7 +4,7 @@ import numpy as np
 # import pandas as pd
 from scipy.special import logsumexp
 
-from torchmm.discrete import HiddenMarkovModel
+from torchmm.discrete_unpacked import HiddenMarkovModel
 
 
 def test_init():
@@ -355,9 +355,9 @@ def test_viterbi_training():
     #                           range(len(model.prob_state_1))])
 
     # pred = (1 - state_summary[-2]) > 0.5
-    pred = torch.stack(states_seq)
+    # pred = torch.cat(states_seq, 0).data.numpy()
     # true = np.concatenate(states, 0)
-    # pred = states_seq
+    pred = states_seq
     true = states
     accuracy = torch.mean(torch.abs(pred - true).float())
     print("Accuracy: ", accuracy)
@@ -418,8 +418,7 @@ def test_autograd_training():
     # pred = (1 - state_summary[-2]) > 0.5
     # pred = torch.cat(states_seq, 0).data.numpy()
     # true = np.concatenate(states, 0)
-    pred = torch.stack(states_seq)
-    # pred = states_seq
+    pred = states_seq
     true = states
     accuracy = torch.mean(torch.abs(pred - true).float())
     print("Accuracy: ", accuracy)
