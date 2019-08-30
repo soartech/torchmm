@@ -51,35 +51,31 @@ def test_init():
 def test_sample():
 
     True_pi = np.array([1.0, 0.0])
-
     True_T = np.array([[1.0, 0.0],
                        [0.0, 1.0]])
+    True_mu = np.array([[1.0, 0.0],
+                        [0.0, 1.0]])
+    True_sd = np.array([[1.0, 1.0],
+                        [1.0, 1.0]])
 
-    True_E = np.array([[1.0, 0.0],
-                       [0.0, 1.0]])
-
-    true_model = GaussianHMM(True_T, True_E, True_pi)
+    true_model = GaussianHMM(True_T, True_mu, True_sd, True_pi)
     obs_seq, states = true_model.sample(3, 10)
 
-    assert obs_seq.shape == (3, 10)
+    assert obs_seq.shape == (3, 10, 2)
     assert states.shape == (3, 10)
-    assert 1 not in obs_seq
+    # assert 1 not in obs_seq
     assert 1 not in states
 
     True_pi = np.array([0.5, 0.5])
-
     True_T = np.array([[0.5, 0.5],
                        [0.5, 0.5]])
 
-    True_E = np.array([[1.0, 0.0],
-                       [0.0, 1.0]])
-
-    true_model = GaussianHMM(True_T, True_E, True_pi)
+    true_model = GaussianHMM(True_T, True_mu, True_sd, True_pi)
     obs_seq, states = true_model.sample(4, 20)
 
-    assert obs_seq.shape == (4, 20)
+    assert obs_seq.shape == (4, 20, 2)
     assert states.shape == (4, 20)
-    assert 1 in obs_seq and 0 in obs_seq
+    # assert 1 in obs_seq and 0 in obs_seq
     assert 1 in states and 0 in states
 
     True_pi = np.array([0.5, 0.5])
@@ -87,13 +83,10 @@ def test_sample():
     True_T = np.array([[0.9, 0.1],
                        [0.5, 0.5]])
 
-    True_E = np.array([[1.0, 0.0],
-                       [0.0, 1.0]])
-
-    true_model = GaussianHMM(True_T, True_E, True_pi)
+    true_model = GaussianHMM(True_T, True_mu, True_sd, True_pi)
     obs_seq, states = true_model.sample(1, 20)
 
-    assert obs_seq.shape == (1, 20)
+    assert obs_seq.shape == (1, 20, 2)
     assert states.shape == (1, 20)
     assert (states == 0).sum() > (states == 1).sum()
 

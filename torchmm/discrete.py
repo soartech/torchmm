@@ -173,7 +173,8 @@ class HiddenMarkovModel(object):
             unsorted_indices=X_packed.unsorted_indices)
         f_ll_unpacked, lengths = pad_packed_sequence(f_ll_packed,
                                                      batch_first=True)
-        return f_ll_unpacked[:, lengths-1].squeeze(1)
+
+        return f_ll_unpacked[torch.arange(f_ll_unpacked.size(0)), lengths-1]
 
     def predict(self, X):
         """
@@ -196,7 +197,7 @@ class HiddenMarkovModel(object):
         .. todo::
             Update this doc comment.
         """
-        return self.filter(X).sum().item()
+        return self.filter(X).logsumexp(1).sum(0)
 
     def sample(self, n_seq, n_obs):
         """

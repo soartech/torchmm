@@ -44,11 +44,14 @@ class GaussianHMM(HiddenMarkovModel):
         self.S = T.shape[0]
 
         # mean and sd of gaussian emissions
-        self.mu = torch.tensor(mu)
-        self.sd = torch.tensor(sd)
+        self.mu = torch.tensor(mu, dtype=torch.float64)
+        self.sd = torch.tensor(sd, dtype=torch.float64)
         self.mv = [MultivariateNormal(
             self.mu[i], torch.diag(self.sd[i].mul(self.sd[i])))
             for i in range(self.S)]
+
+        self.n_features = sd.shape[1]
+        self.emis_type = torch.float64
 
         # Transition matrix
         # self.T = torch.tensor(T)
@@ -57,6 +60,12 @@ class GaussianHMM(HiddenMarkovModel):
         # Initial state vector
         # self.T0 = torch.tensor(T0)
         self.log_T0 = torch.log(torch.tensor(T0))
+
+    def _sample_states(self, states):
+        """
+        Given an array-like of states, randomly samples emissions.
+        """
+        return torch.stack([self.mv[s].sample() for s in states])
 
     def _emission_ll(self, X):
         """
@@ -68,6 +77,27 @@ class GaussianHMM(HiddenMarkovModel):
         for i in range(self.S):
             ll[:, i] = self.mv[i].log_prob(X.data)
         return ll
+
+    def sample(self, n_seq, n_obs):
+        """
+        Draws a sample from the HMM of length num_obs.
+
+        .. todo::
+            could move obs outside loop.
+        """
+        obs = torch.zeros([n_seq, n_obs, self.n_features], dtype=torch.float64)
+        states = torch.zeros([n_seq, n_obs], dtype=torch.long)
+
+        states[:, 0] = torch.multinomial(
+            self.T0.unsqueeze(0).expand(n_seq, -1), 1).squeeze()
+        obs[:, 0] = self._sample_states(states[:, 0])
+
+        for t in range(1, n_obs):
+            states[:, t] = torch.multinomial(
+                self.T[states[:, t-1], :], 1).squeeze()
+            obs[:, t] = self._sample_states(states[:, t])
+
+        return obs.data.numpy(), states.data.numpy()
 
     def _update_emissions_viterbi_training(self, states, obs_seq):
         new_mu = torch.zeros_like(self.mu)
