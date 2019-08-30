@@ -135,7 +135,7 @@ def test_decode():
                       [0.4, 0.6]])
     model = HiddenMarkovModel(trans, emi, p0)
 
-    obs_seq = np.array([[0, 0, 1, 2, 2]])
+    obs_seq = torch.tensor([[0, 0, 1, 2, 2]])
     states_seq, _ = model.decode(obs_seq)
 
     most_likely_states = [states[s.item()] for s in states_seq[0]]
@@ -162,7 +162,7 @@ def test_decode_aima_umbrella_example():
                       [0.3, 0.7]])
     model = HiddenMarkovModel(trans, emi, p0)
 
-    obs_seq = np.array([[1, 1, 0, 1, 1]])
+    obs_seq = torch.tensor([[1, 1, 0, 1, 1]])
     states_seq, path_ll = model.decode(obs_seq)
 
     most_likely_states = [states[s.item()] for s in states_seq[0]]
@@ -291,7 +291,7 @@ def test_smooth():
                       [0.3, 0.7]])
 
     model = HiddenMarkovModel(trans, emi, p0)
-    obs_seq = np.array([[1, 1]])
+    obs_seq = torch.tensor([[1, 1]])
 
     # New approach
     posterior_ll = model.smooth(obs_seq)
@@ -303,91 +303,28 @@ def test_smooth():
     assert np.allclose(posterior_prob.data.numpy()[0], first_correct)
 
 
-def test_baum_welch():
-
-    True_pi = np.array([0.5, 0.5])
-
-    True_T = np.array([[0.85, 0.15],
-                       [0.12, 0.88]])
-
-    True_E = np.array([[0.95, 0.05],
-                       [0.05, 0.95]])
-
-    true_model = HiddenMarkovModel(True_T, True_E, True_pi)
-    obs_seq, states = true_model.sample(10, 100)
-
-    print("First 5 Observations:  ", obs_seq[0, :5])
-    print("First 5 Hidden States: ", states[0, :5])
-
-    init_pi = np.array([0.5, 0.5])
-
-    init_T = np.array([[0.6, 0.4],
-                       [0.3, 0.7]])
-
-    init_E = np.array([[0.6, 0.3],
-                       [0.4, 0.7]])
-
-    model = HiddenMarkovModel(init_T, init_E, init_pi,
-                              epsilon=0.1, maxStep=100)
-
-    trans0, transition, emission, converge = model.fit(obs_seq,
-                                                       alg="baum_welch")
-
-    # Not enough samples (only 1) to test
-    # assert np.allclose(trans0.data.numpy(), True_pi)
-    print("Pi Matrix: ")
-    print(trans0.exp())
-
-    print("Transition Matrix: ")
-    print(transition.exp())
-    # assert np.allclose(transition.exp().data.numpy(), True_T, atol=0.1)
-    print()
-    print("Emission Matrix: ")
-    print(emission.exp())
-    # assert np.allclose(emission.exp().data.numpy(), True_E, atol=0.1)
-    print()
-    print("Reached Convergence: ")
-    print(converge)
-
-    assert converge
-
-    states_seq, _ = model.decode(obs_seq)
-
-    # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
-    #                           range(len(model.prob_state_1))])
-
-    # pred = (1 - state_summary[-2]) > 0.5
-    pred = torch.cat(states_seq, 0).data.numpy()
-    true = np.concatenate(states, 0)
-    accuracy = np.mean(np.abs(pred - true))
-    print("Accuracy: ", accuracy)
-    assert accuracy >= 0.9 or accuracy <= 0.1
-    assert False
-
-
 def test_viterbi_training():
-
-    True_pi = np.array([0.5, 0.5])
+    True_pi = np.array([0.75, 0.25])
 
     True_T = np.array([[0.85, 0.15],
                        [0.12, 0.88]])
 
-    True_E = np.array([[0.95, 0.05],
-                       [0.05, 0.95]])
+    True_E = np.array([[0.99, 0.05],
+                       [0.01, 0.95]])
 
     true_model = HiddenMarkovModel(True_T, True_E, True_pi)
     obs_seq, states = true_model.sample(50, 100)
 
-    print("First 5 Obersvations:  ", obs_seq[0, :5])
+    print("First 50 Obersvations:  ", obs_seq[0, :50])
     print("First 5 Hidden States: ", states[0, :5])
 
     init_pi = np.array([0.5, 0.5])
 
     init_T = np.array([[0.6, 0.4],
-                       [0.3, 0.7]])
+                       [0.5, 0.5]])
 
-    init_E = np.array([[0.6, 0.3],
-                       [0.4, 0.7]])
+    init_E = np.array([[0.6, 0.5],
+                       [0.4, 0.5]])
 
     model = HiddenMarkovModel(init_T, init_E, init_pi,
                               epsilon=0.1, maxStep=50)
@@ -418,8 +355,72 @@ def test_viterbi_training():
     #                           range(len(model.prob_state_1))])
 
     # pred = (1 - state_summary[-2]) > 0.5
-    pred = torch.cat(states_seq, 0).data.numpy()
-    true = np.concatenate(states, 0)
-    accuracy = np.mean(np.abs(pred - true))
+    pred = torch.stack(states_seq)
+    # true = np.concatenate(states, 0)
+    # pred = states_seq
+    true = states
+    accuracy = torch.mean(torch.abs(pred - true).float())
+    print("Accuracy: ", accuracy)
+    assert accuracy >= 0.9 or accuracy <= 0.1
+
+
+def test_autograd_training():
+    True_pi = np.array([0.75, 0.25])
+
+    True_T = np.array([[0.85, 0.15],
+                       [0.12, 0.88]])
+
+    True_E = np.array([[0.99, 0.05],
+                       [0.01, 0.95]])
+
+    true_model = HiddenMarkovModel(True_T, True_E, True_pi)
+    obs_seq, states = true_model.sample(50, 50)
+
+    print("First 5 Obersvations:  ", obs_seq[0, :5])
+    print("First 5 Hidden States: ", states[0, :5])
+
+    init_pi = np.array([0.5, 0.5])
+
+    init_T = np.array([[0.6, 0.4],
+                       [0.5, 0.5]])
+
+    init_E = np.array([[0.5, 0.5],
+                       [0.5, 0.5]])
+
+    model = HiddenMarkovModel(init_T, init_E, init_pi,
+                              epsilon=1e-2, maxStep=500)
+
+    trans0, transition, emission, converge = model.fit(obs_seq, alg="autograd")
+
+    # Not enough samples (only 1) to test
+    # assert np.allclose(trans0.data.numpy(), True_pi)
+    print("Pi Matrix: ")
+    print(trans0.exp())
+
+    print("Transition Matrix: ")
+    print(transition.exp())
+    # assert np.allclose(transition.exp().data.numpy(), True_T, atol=0.1)
+    print()
+    print("Emission Matrix: ")
+    print(emission.exp())
+    # assert np.allclose(emission.exp().data.numpy(), True_E, atol=0.1)
+    print()
+    print("Reached Convergence: ")
+    print(converge)
+
+    assert converge
+
+    states_seq, _ = model.decode(obs_seq)
+
+    # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
+    #                           range(len(model.prob_state_1))])
+
+    # pred = (1 - state_summary[-2]) > 0.5
+    # pred = torch.cat(states_seq, 0).data.numpy()
+    # true = np.concatenate(states, 0)
+    pred = torch.stack(states_seq)
+    # pred = states_seq
+    true = states
+    accuracy = torch.mean(torch.abs(pred - true).float())
     print("Accuracy: ", accuracy)
     assert accuracy >= 0.9 or accuracy <= 0.1
