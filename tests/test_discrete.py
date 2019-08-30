@@ -231,13 +231,19 @@ def test_score_aima_umbrella_example():
     model = HiddenMarkovModel(trans, emi, p0)
 
     obs_seq = np.array([[1]])
-    ll_score = model.score(obs_seq)
-    print(ll_score)
-    assert ll_score - -3.101092789211817 < 0.001
+    ll_score = model.score(obs_seq).item()
+    print(model.filter(obs_seq))
+    assert abs(ll_score - -0.5978) < 0.001
 
     obs_seq = np.array([[1, 1]])
+    ll_score = model.score(obs_seq).item()
+    assert abs(ll_score - -1.045545) < 0.001
+
+    obs_seq = np.array([[1], [1]])
     ll_score = model.score(obs_seq)
-    assert ll_score - -3.101092789211817 < 0.001
+    # print(ll_score)
+    print(model.filter(obs_seq))
+    assert abs(ll_score - (2 * -0.5978)) < 0.001
 
 
 def test_predict_aima_umbrella_example():
