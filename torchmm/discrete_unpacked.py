@@ -493,7 +493,7 @@ if __name__ == "__main__":
                        [0.5, 0.5]])
 
     model = HiddenMarkovModel(init_T, init_E, init_T0,
-                              epsilon=1e-4, maxStep=1000)
+                              epsilon=1e-2, maxStep=500)
     _, _, _, converge = model.fit(obs_seq, alg="autograd")
 
     # model = HiddenMarkovModel(transition.exp().data.numpy(),

@@ -374,7 +374,7 @@ def test_autograd_training():
                        [0.01, 0.95]])
 
     true_model = HiddenMarkovModel(True_T, True_E, True_pi)
-    obs_seq, states = true_model.sample(50, 100)
+    obs_seq, states = true_model.sample(30, 30)
 
     print("First 5 Obersvations:  ", obs_seq[0, :5])
     print("First 5 Hidden States: ", states[0, :5])
@@ -388,7 +388,7 @@ def test_autograd_training():
                        [0.5, 0.5]])
 
     model = HiddenMarkovModel(init_T, init_E, init_pi,
-                              epsilon=1e-3, maxStep=500)
+                              epsilon=1e-2, maxStep=500)
 
     trans0, transition, emission, converge = model.fit(obs_seq, alg="autograd")
 

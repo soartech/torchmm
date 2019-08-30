@@ -537,7 +537,8 @@ class HiddenMarkovModel(object):
             unsorted_indices=obs_seq.unsorted_indices)
         f_ll_unpacked, lengths = pad_packed_sequence(f_ll_packed,
                                                      batch_first=True)
-        self.ll_history.append(f_ll_unpacked[:, lengths-1].squeeze(1).sum())
+        self.ll_history.append(
+            f_ll_unpacked[torch.arange(f_ll_unpacked.size(0)), lengths-1].logsumexp(1).sum(0).item())
         # self.ll_history.append(self.forward_ll[-1].sum())
 
         # do the updating
