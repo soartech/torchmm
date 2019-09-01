@@ -6,6 +6,7 @@ from torch.nn.utils.rnn import pad_packed_sequence
 
 import numpy as np
 
+
 def get_logger():
     logger = get_logger
     logger = logging.getLogger(__name__)
@@ -19,9 +20,11 @@ def get_logger():
     logger.addHandler(ch)
     return logger
 
+
 def sample_state_transition_matrix(states):
     states = np.random.rand(states, states)
     return states/states.sum(axis=1, keepdims=True)
+
 
 def pack_list(X, enforce_sorted=False):
     """
@@ -44,8 +47,3 @@ def unpack_list(X):
     # lengths = lengths[X.sorted_indices]
     seqs = [X_unpacked[i, :l] for i, l in enumerate(lengths)]
     return seqs
-
-
-
-
-
