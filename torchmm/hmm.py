@@ -16,18 +16,46 @@ class HiddenMarkovModel(Model):
         Pi -> a tensor of start probs
         T -> a tensor of transition probs
         """
+        for s in states:
+            if not isinstance(s, Model):
+                raise ValueError("States must be models")
+
+        if T0 is not None and not isinstance(T0, torch.Tensor):
+            raise ValueError("T0 must be a torch tensor.")
+        if T0 is not None and not torch.allclose(T0.sum(0),
+                                                 torch.tensor([1.])):
+            raise ValueError("Sum of T0 != 1.0")
+
+        if T is not None and not isinstance(T, torch.Tensor):
+            raise ValueError("T must be a torch tensor.")
+        if T is not None and not torch.allclose(T.sum(1), torch.tensor([1.])):
+            raise ValueError("Sum of T rows != 1.0")
+
+        if T is not None and T.shape[0] != T.shape[1]:
+            raise ValueError("T must be a square matrix")
+        if T is not None and T.shape[0] != len(states):
+            raise ValueError("E has incorrect number of states")
+        if T0 is not None and T0.shape[0] != len(states):
+            raise ValueError("T0 has incorrect number of states")
+
         self.states = states
 
         if T0 is not None:
             self.logit_T0 = T0.log()
-            self.log_T0 = T0.log()
         if T is not None:
             self.logit_T = T.log()
-            self.log_T = T.log()
-
-        # self.update_log_params()
 
     def parameters(self):
+        """
+        Returns the set of parameters for optimization.
+
+        This makes it possible to nest models.
+
+        .. todo::
+            Need to rewrite to somehow check for parameters already returned.
+            For example, if states share the same emission parameters somehow,
+            then we only want them returned once.
+        """
         yield self.logit_T0
         yield self.logit_T
         for s in self.states:
@@ -37,24 +65,6 @@ class HiddenMarkovModel(Model):
     def update_log_params(self):
         self.log_T0 = self.logit_T0.softmax(0).log()
         self.log_T = self.logit_T.softmax(1).log()
-        # self.log_T0 = self.logit_T0 - self.logit_T0.logsumexp(0)
-        # self.log_T = self.logit_T - self.logit_T.logsumexp(0)
-        # print(self.logit_T0.softmax(0))
-        # self.log_T0 = self.logit_T0.softmax(0).log()
-        # self.log_T = self.logit_T.softmax(0).log()
-
-    # @property
-    # def log_T0(self):
-    #     print(self.logit_T0.softmax(0).log())
-    #     print(self.logit_T0 - self.logit_T0.logsumexp(0))
-    #     assert torch.allclose(self.logit_T0.softmax(0).log(), self.logit_T0 -
-    #                           self.logit_T0.logsumexp(0))
-    #     return self.logit_T0 - self.logit_T0.logsumexp(0)
-
-    # @property
-    # def log_T(self):
-    #     return self.logit_T.softmax(1).log()
-    #     # return self.logit_T - self.logit_T.logsumexp(1)
 
     @property
     def T0(self):
@@ -118,12 +128,37 @@ class HiddenMarkovModel(Model):
         self._forward()
         return self.forward_ll[:, -1, :]
 
+    def predict(self, X):
+        """
+        Compute the posterior distributions over the next (future) states for
+        each sequence in X. Predicts 1 step into the future for each sequence.
+
+        .. todo::
+            Update this doc comment.
+
+        .. todo::
+            Update to accept a number of timesteps to project.
+        """
+        states = self.filter(X)
+        return self._belief_prop_sum(states)
+
     def _forward(self):
         self.forward_ll[:, 0, :] = self.log_T0 + self.obs_ll_full[:, 0]
         for t in range(1, self.forward_ll.shape[1]):
             self.forward_ll[:, t, :] = (
                 self._belief_prop_sum(self.forward_ll[:, t-1, :]) +
                 self.obs_ll_full[:, t])
+
+    def _backward(self):
+        """
+        Computes the backward values.
+        """
+        N = self.obs_ll_full.shape[0]
+        T = self.obs_ll_full.shape[1]
+        self.backward_ll[:, T-1] = torch.ones([N, len(self.states)]).float()
+        for t in range(T-1, 0, -1):
+            self.backward_ll[:, t-1] = self._belief_prop_sum(
+                self.backward_ll[:, t, :] + self.obs_ll_full[:, t, :])
 
     def fit(self, X, max_steps=500, epsilon=1e-2, alg="viterbi"):
         """
@@ -150,6 +185,20 @@ class HiddenMarkovModel(Model):
         self._init_viterbi(X)
         state_seq, path_ll = self._viterbi_inference(X)
         return state_seq, path_ll
+
+    def smooth(self, X):
+        """
+        Compute the smoothed posterior probability over each state for the
+        sequences in X.
+
+        .. todo::
+            Update this doc comment and update to reflect packed and padded seq
+        """
+        self.update_log_params()
+        self._init_forw_back(X)
+        self.obs_ll_full = self._emission_ll(X)
+        self._forward_backward_inference(X)
+        return self.posterior_ll
 
     def _belief_prop_max(self, scores):
         """
@@ -219,6 +268,35 @@ class HiddenMarkovModel(Model):
 
         return self.states_seq, self.path_scores
 
+    def _init_forw_back(self, X):
+        shape = [X.shape[0], X.shape[1], len(self.states)]
+        self.forward_ll = torch.zeros(shape).float()
+        self.backward_ll = torch.zeros_like(self.forward_ll)
+        self.posterior_ll = torch.zeros_like(self.forward_ll)
+
+    def _forward_backward_inference(self, x):
+        """
+        Computes the expected probability of each state for each time.
+        Returns the posterior over all states.
+
+        Assumes the following have been initalized:
+            - self.forward_ll
+            - self.backward_ll
+            - self.posterior_ll
+            - self.obs_ll_full
+        """
+        # Forward
+        self._forward()
+
+        # Backward
+        self._backward()
+
+        # Posterior
+        self.posterior_ll = self.forward_ll + self.backward_ll
+
+        # Return posterior
+        return self.posterior_ll
+
     def _init_viterbi(self, X):
         """
         Initialize the parameters needed for _viterbi_inference.
@@ -236,7 +314,7 @@ class HiddenMarkovModel(Model):
 
     def _viterbi_training_step(self, X):
 
-        # self.update_log_params()
+        self.update_log_params()
 
         # for convergence testing
         self.obs_ll_full = self._emission_ll(X)

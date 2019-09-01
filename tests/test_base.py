@@ -22,14 +22,14 @@ def test_categorical_model_log_prob():
 def test_categorical_model_parmeters():
     original = torch.tensor([1, 1, 1])
     m = CategoricalModel(logits=original)
-    p = m.parameters()
+    p = list(m.parameters())
     assert torch.isclose(original, torch.tensor([1, 1, 1])).all()
-    p += 1
+    p[0] += 1
     assert torch.isclose(original, torch.tensor([2, 2, 2])).all()
 
 
 def test_categorical_model_fit():
     m = CategoricalModel(logits=torch.tensor([0, 0, 0]))
     m.fit(torch.tensor([0, 0, 1, 1, 2]))
-    assert torch.isclose(m.parameters().softmax(0),
+    assert torch.isclose(list(m.parameters())[0].softmax(0),
                          torch.tensor([0.4, 0.4, 0.2])).all()
