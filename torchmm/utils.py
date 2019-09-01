@@ -3,14 +3,14 @@ from torch.nn.utils.rnn import pack_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
 
 
-def pack_list(X):
+def pack_list(X, enforce_sorted=False):
     """
     Takes a list of lists of features.
 
     Returns packed and padded sequences.
     """
     X = [torch.tensor(x) if not isinstance(x, torch.Tensor) else x for x in X]
-    return pack_sequence(X, enforce_sorted=False)
+    return pack_sequence(X, enforce_sorted=enforce_sorted)
 
 
 def unpack_list(X):
