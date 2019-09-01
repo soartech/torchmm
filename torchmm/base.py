@@ -4,6 +4,7 @@ includes some very basic models for discrete and continuous emissions.
 """
 import torch
 from torch.distributions import Categorical
+from torch.distributions.multivariate_normal import MultivariateNormal
 
 
 class Model(object):
@@ -90,3 +91,58 @@ class CategoricalModel(Model):
         counts = X.bincount(minlength=self.logits.shape[0]).float()
         prob = counts / counts.sum()
         self.logits = prob.log()
+
+
+class DiagNormalModel(Model):
+
+    def __init__(self, means, covs):
+        """
+        Accepts a set of mean and cov for each dimension.
+
+        Currently assumes all dimensions are independent.
+        """
+        if not isinstance(means, torch.Tensor):
+            raise ValueError("Means must be a tensor.")
+        if not isinstance(covs, torch.Tensor):
+            raise ValueError("Covs must be a tensor.")
+        if means.shape != covs.shape:
+            raise ValueError("Means and covs must have same shape!")
+
+        self.means = means
+        self.covs = covs
+
+    def sample(self, sample_shape=None):
+        """
+        Draws n samples from this model.
+        """
+        if sample_shape is None:
+            sample_shape = torch.tensor([1])
+        return MultivariateNormal(
+            loc=self.means,
+            covariance_matrix=self.covs.abs().diag()).sample(sample_shape)
+
+    def log_prob(self, value):
+        """
+        Returns the loglikelihood of x given the current categorical
+        distribution.
+        """
+        return MultivariateNormal(
+            loc=self.means,
+            covariance_matrix=self.covs.abs().diag()).log_prob(value)
+
+    def parameters(self):
+        """
+        Returns the model parameters for optimization.
+        """
+        yield self.means
+        yield self.covs
+
+    def fit(self, X):
+        """
+        Update the logit vector based on the observed counts.
+
+        .. todo::
+            Maybe could be modified with weights to support baum welch?
+        """
+        self.means = X.mean(0)
+        self.covs = X.std(0).pow(2)
