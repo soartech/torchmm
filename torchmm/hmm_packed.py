@@ -1,5 +1,4 @@
 import torch
-import torch.optim as optim
 
 from torchmm.hmm import HiddenMarkovModel
 from torchmm.base import CategoricalModel
@@ -42,15 +41,6 @@ class HiddenMarkovModel(HiddenMarkovModel):
             batch_first=True)
         return packed_obs, packed_states
 
-    def log_prob(self, X):
-        """
-        Computes the log likelihood of the data X given the model.
-
-        X should have format N x O, where N is number of sequences and O is
-        number of observations in that sequence.
-        """
-        return self.filter(X).logsumexp(1).sum(0)
-
     def _emission_ll(self, X):
         ll = torch.zeros([X.data.shape[0], len(self.states)]).float()
         for i, s in enumerate(self.states):
@@ -84,20 +74,6 @@ class HiddenMarkovModel(HiddenMarkovModel):
                                                      batch_first=True)
 
         return f_ll_unpacked[torch.arange(f_ll_unpacked.size(0)), lengths-1]
-
-    def predict(self, X):
-        """
-        Compute the posterior distributions over the next (future) states for
-        each sequence in X. Predicts 1 step into the future for each sequence.
-
-        .. todo::
-            Update this doc comment.
-
-        .. todo::
-            Update to accept a number of timesteps to project.
-        """
-        states = self.filter(X)
-        return self._belief_prop_sum(states)
 
     def _forward(self):
         self.forward_ll[0:self.batch_sizes[0]] = (
@@ -136,20 +112,6 @@ class HiddenMarkovModel(HiddenMarkovModel):
                                  self.batch_sizes[t]: end[t-1]] = (
                     torch.ones([self.batch_sizes[t-1] - self.batch_sizes[t],
                                 len(self.states)]).float())
-
-    def fit(self, X, max_steps=500, epsilon=1e-2, alg="viterbi"):
-        """
-        Learn new model parameters from X using the specified alg.
-
-        Alg can be either 'baum_welch' or 'viterbi'.
-        """
-        if alg == 'viterbi':
-            return self._viterbi_training(X, max_steps=max_steps,
-                                          epsilon=epsilon)
-        elif alg == 'autograd':
-            return self._autograd(X, max_steps=max_steps, epsilon=epsilon)
-        else:
-            raise Exception("Unknown alg")
 
     def decode(self, X):
         """
@@ -191,36 +153,6 @@ class HiddenMarkovModel(HiddenMarkovModel):
             unsorted_indices=X.unsorted_indices)
 
         return post_packed
-
-    def _belief_prop_max(self, scores):
-        """
-        Propagates the scores over transition matrix. Returns the indices and
-        values of the max for each state.
-
-        Scores should have shape N x S, where N is the num seq and S is the
-        num states.
-        """
-        mv, mi = torch.max(scores.unsqueeze(2).expand(-1, -1,
-                                                      self.log_T.shape[0]) +
-                           self.log_T.unsqueeze(0).expand(scores.shape[0], -1,
-                                                          -1), 1)
-        return mv.squeeze(1), mi.squeeze(1)
-        # return torch.max(scores.view(-1, 1) + self.log_T, 0)
-
-    def _belief_prop_sum(self, scores):
-        """
-        Propagates the scores over transition matrix. Returns the indices and
-        values of the max for each state.
-
-        Scores should have shape N x S, where N is the num seq and S is the
-        num states.
-        """
-        s = torch.logsumexp(scores.unsqueeze(2).expand(-1, -1,
-                                                       self.log_T.shape[0]) +
-                            self.log_T.unsqueeze(0).expand(scores.shape[0], -1,
-                                                           -1), 1)
-        return s.squeeze(1)
-        # return torch.logsumexp(scores.view(-1, 1) + self.log_T, 0)
 
     def _viterbi_inference(self, X):
         """
@@ -379,49 +311,6 @@ class HiddenMarkovModel(HiddenMarkovModel):
         print('HISTORY!')
         print(self.ll_history)
         return self.converged
-
-    def _autograd(self, X, max_steps=500, epsilon=1e-2):
-        self.ll_history = []
-        self.epsilon = epsilon
-
-        for p in self.parameters():
-            p.requires_grad_(True)
-        optimizer = optim.AdamW(self.parameters(), lr=1)
-
-        for i in range(max_steps):
-
-            # print("CONVERGED", self.converged)
-            if self.converged:
-                break
-            # print()
-            print("STEP %i of %i" % (i, max_steps))
-            # optimizer = np.random.choice(optimizers)
-            ll = self.log_prob(X)
-            self.ll_history.append(ll.item())
-            loss = -1 * ll
-
-            # print(ll)
-            print("loss: ", loss)
-            # print("T0: ", self.log_T0, self.T0)
-            # print("T: ", self.log_T, self.T)
-            # # print("E: ", self.log_E, self.log_E.exp())
-            # print('GRAD T0: ', self.log_T0.grad)
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-        # print('LL HISTORY', self.ll_history[-3:])
-        # from matplotlib import pyplot as plt
-        # plt.plot(self.ll_history)
-        # plt.show()
-
-        return self.converged
-
-    @property
-    def converged(self):
-        return (len(self.ll_history) >= 2 and
-                abs(self.ll_history[-2] - self.ll_history[-1]) < self.epsilon)
 
 
 if __name__ == "__main__":
