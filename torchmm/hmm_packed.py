@@ -20,8 +20,8 @@ class HiddenMarkovModel(HiddenMarkovModel):
 
         test_sample = self.states[0].sample()
         shape = [n_seq, n_obs] + list(test_sample.shape)[1:]
-        obs = torch.zeros(shape).type(test_sample.type())
-        states = torch.zeros([n_seq, n_obs]).long()
+        obs = torch.zeros(shape, device=self.device).type(test_sample.type())
+        states = torch.zeros([n_seq, n_obs], device=self.device).long()
 
         # Sample the states
         states[:, 0] = torch.multinomial(
@@ -45,7 +45,8 @@ class HiddenMarkovModel(HiddenMarkovModel):
         return packed_obs, packed_states
 
     def _emission_ll(self, X):
-        ll = torch.zeros([X.data.shape[0], len(self.states)]).float()
+        ll = torch.zeros([X.data.shape[0], len(self.states)],
+                         device=self.device).float()
         for i, s in enumerate(self.states):
             ll[:, i] = s.log_prob(X.data)
         return ll
@@ -64,7 +65,8 @@ class HiddenMarkovModel(HiddenMarkovModel):
         self.update_log_params()
 
         self.forward_ll = torch.zeros([X.data.shape[0],
-                                       len(self.states)]).float()
+                                       len(self.states)],
+                                      device=self.device).float()
         self.obs_ll_full = self._emission_ll(X)
         self.batch_sizes = X.batch_sizes
         self._forward()
@@ -102,7 +104,8 @@ class HiddenMarkovModel(HiddenMarkovModel):
         end = torch.cumsum(self.batch_sizes, 0)
 
         self.backward_ll[start[T-1]:end[T-1]] = (
-            torch.ones([self.batch_sizes[T-1], len(self.states)]).float())
+            torch.ones([self.batch_sizes[T-1], len(self.states)],
+                       device=self.device).float())
 
         for t in range(T-1, 0, -1):
             self.backward_ll[start[t-1]:start[t-1] +
@@ -114,7 +117,8 @@ class HiddenMarkovModel(HiddenMarkovModel):
                 self.backward_ll[start[t-1] +
                                  self.batch_sizes[t]: end[t-1]] = (
                     torch.ones([self.batch_sizes[t-1] - self.batch_sizes[t],
-                                len(self.states)]).float())
+                                len(self.states)],
+                               device=self.device).float())
 
     def decode(self, X):
         """
@@ -215,7 +219,7 @@ class HiddenMarkovModel(HiddenMarkovModel):
         N = len(X.data)
         shape = [N, len(self.states)]
         self.batch_sizes = X.batch_sizes
-        self.forward_ll = torch.zeros(shape).float()
+        self.forward_ll = torch.zeros(shape, device=self.device).float()
         self.backward_ll = torch.zeros_like(self.forward_ll)
         self.posterior_ll = torch.zeros_like(self.forward_ll)
 
@@ -255,9 +259,10 @@ class HiddenMarkovModel(HiddenMarkovModel):
         self.batch_sizes = X.batch_sizes
 
         # Init_viterbi_variables
-        self.path_states = torch.zeros(shape).float()
+        self.path_states = torch.zeros(shape, device=self.device).float()
         self.path_scores = torch.zeros_like(self.path_states)
-        self.states_seq = torch.zeros(X.data.shape[0]).long()
+        self.states_seq = torch.zeros(X.data.shape[0],
+                                      device=self.device).long()
 
     def _viterbi_training_step(self, X):
         self.update_log_params()
@@ -300,7 +305,8 @@ class HiddenMarkovModel(HiddenMarkovModel):
 
         # used for convergence testing.
         self.forward_ll = torch.zeros([X.data.shape[0],
-                                       len(self.states)]).float()
+                                       len(self.states)],
+                                      device=self.device).float()
         self.ll_history = []
 
         self.epsilon = epsilon
