@@ -49,6 +49,12 @@ class HiddenMarkovModel(Model):
         else:
             self.logit_T = torch.zeros([len(states), len(states)]).float()
 
+    def to(self, device):
+        self.logit_T0 = self.logit_T0.to(device)
+        self.logit_T = self.logit_T.to(device)
+        for s in self.states:
+            s.to(device)
+
     def init_params_random(self):
         """
         Randomly sets the parameters of the model.

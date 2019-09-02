@@ -19,6 +19,12 @@ class Model(object):
         """
         raise NotImplementedError("init_params_random method not implemented")
 
+    def to(self, device):
+        """
+        Moves the model's parameters / tensors to the specified device.
+        """
+        raise NotImplementedError("to method not implemented")
+
     def sample(self, *args, **kargs):
         """
         Draws a sample from the model. This method might take additional
@@ -69,6 +75,9 @@ class CategoricalModel(Model):
             self.logits = logits
         else:
             raise ValueError("Neither probs or logits provided; one must be.")
+
+    def to(self, device):
+        self.logits = self.logits.to(device)
 
     def init_params_random(self):
         self.logits = torch.rand_like(self.logits).softmax(0).log()
@@ -129,6 +138,10 @@ class DiagNormalModel(Model):
 
         self.means = means
         self.covs = covs
+
+    def to(self, device):
+        self.means = self.means.to(device)
+        self.covs = self.covs.to(device)
 
     def init_params_random(self):
         self.means.normal_()
