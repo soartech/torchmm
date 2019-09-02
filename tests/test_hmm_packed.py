@@ -564,9 +564,6 @@ def test_hmm_fit_autograd_gpu():
 
     obs_seq, states = model.sample(50, 100)
 
-    print("First 50 Obersvations:  ", obs_seq[0, :50])
-    print("First 5 Hidden States: ", states[0, :5])
-
     T0 = torch.tensor([0.5, 0.5])
     T = torch.tensor([[0.6, 0.4],
                       [0.5, 0.5]])
