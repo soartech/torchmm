@@ -371,8 +371,15 @@ def test_hmm_fit_autograd_categorical():
     s2 = CategoricalModel(logits=s2_orig)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
 
+    import time
+    t0 = time.time()
     converge = model.fit(obs_seq, max_steps=500,
                          epsilon=1e-2, alg="autograd")
+    t1 = time.time()
+    total = t1-t0
+    print("CPU runtime", total)
+    # converge = model.fit(obs_seq, max_steps=500,
+    #                      epsilon=1e-2, alg="autograd")
 
     # Not enough samples (only 1) to test
     # assert np.allclose(trans0.data.numpy(), True_pi)
@@ -406,6 +413,7 @@ def test_hmm_fit_autograd_categorical():
     accuracy = torch.mean(torch.abs(pred - true).float())
     print("Accuracy: ", accuracy)
     assert accuracy >= 0.9 or accuracy <= 0.1
+    assert False
 
 
 def test_hmm_fit_autograd_diagnormal():
@@ -556,7 +564,6 @@ def test_hmm_fit_autograd_gpu():
     s1 = CategoricalModel(logits=s1_orig)
     s2 = CategoricalModel(logits=s2_orig)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
-    model.to(device)
 
     obs_seq, states = model.sample(50, 100)
 
@@ -573,8 +580,14 @@ def test_hmm_fit_autograd_gpu():
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
     model.to(device)
 
+    import time
+    obs_seq = obs_seq.to(device)
+    t0 = time.time()
     converge = model.fit(obs_seq, max_steps=500,
                          epsilon=1e-2, alg="autograd")
+    t1 = time.time()
+    total = t1-t0
+    print("GPU runtime", total)
 
     # Not enough samples (only 1) to test
     # assert np.allclose(trans0.data.numpy(), True_pi)
@@ -596,3 +609,16 @@ def test_hmm_fit_autograd_gpu():
     assert converge
 
     states_seq, _ = model.decode(obs_seq)
+
+    # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
+    #                           range(len(model.prob_state_1))])
+
+    # pred = (1 - state_summary[-2]) > 0.5
+    # pred = torch.cat(states_seq, 0).data.numpy()
+    # true = np.concatenate(states, 0)
+    pred = states_seq.to("cpu")
+    true = states
+    accuracy = torch.mean(torch.abs(pred - true).float())
+    print("Accuracy: ", accuracy)
+    assert accuracy >= 0.9 or accuracy <= 0.1
+    assert False
