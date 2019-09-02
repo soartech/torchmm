@@ -413,7 +413,6 @@ def test_hmm_fit_autograd_categorical():
     accuracy = torch.mean(torch.abs(pred - true).float())
     print("Accuracy: ", accuracy)
     assert accuracy >= 0.9 or accuracy <= 0.1
-    assert False
 
 
 def test_hmm_fit_autograd_diagnormal():
@@ -621,4 +620,3 @@ def test_hmm_fit_autograd_gpu():
     accuracy = torch.mean(torch.abs(pred - true).float())
     print("Accuracy: ", accuracy)
     assert accuracy >= 0.9 or accuracy <= 0.1
-    assert False
