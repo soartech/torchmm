@@ -42,8 +42,21 @@ class HiddenMarkovModel(Model):
 
         if T0 is not None:
             self.logit_T0 = T0.log()
+        else:
+            self.logit_T0 = torch.zeros([len(states)]).float()
         if T is not None:
             self.logit_T = T.log()
+        else:
+            self.logit_T = torch.zeros([len(states), len(states)]).float()
+
+    def init_params_random(self):
+        """
+        Randomly sets the parameters of the model.
+        """
+        self.logit_T0 = torch.rand_like(self.logit_T0).softmax(0).log()
+        self.logit_T = torch.rand_like(self.logit_T).softmax(1).log()
+        for s in self.states:
+            s.init_params_random()
 
     def parameters(self):
         """
@@ -79,8 +92,11 @@ class HiddenMarkovModel(Model):
         Draws n_seq samples from the HMM of length num_obs.
         """
         self.update_log_params()
-        obs = torch.zeros([n_seq, n_obs], dtype=torch.long)
-        states = torch.zeros([n_seq, n_obs], dtype=torch.long)
+
+        test_sample = self.states[0].sample()
+        shape = [n_seq, n_obs] + list(test_sample.shape)[1:]
+        obs = torch.zeros(shape).type(test_sample.type())
+        states = torch.zeros([n_seq, n_obs]).long()
 
         # Sample the states
         states[:, 0] = torch.multinomial(
@@ -160,12 +176,16 @@ class HiddenMarkovModel(Model):
             self.backward_ll[:, t-1] = self._belief_prop_sum(
                 self.backward_ll[:, t, :] + self.obs_ll_full[:, t, :])
 
-    def fit(self, X, max_steps=500, epsilon=1e-2, alg="viterbi"):
+    def fit(self, X, max_steps=500, epsilon=1e-2, alg="viterbi",
+            randomize_first=False):
         """
         Learn new model parameters from X using the specified alg.
 
         Alg can be either 'baum_welch' or 'viterbi'.
         """
+        if randomize_first:
+            self.init_params_random()
+
         if alg == 'viterbi':
             return self._viterbi_training(X, max_steps=max_steps,
                                           epsilon=epsilon)
@@ -310,7 +330,7 @@ class HiddenMarkovModel(Model):
         # Init_viterbi_variables
         self.path_states = torch.zeros(shape).float()
         self.path_scores = torch.zeros_like(self.path_states)
-        self.states_seq = torch.zeros_like(X).long()
+        self.states_seq = torch.zeros([X.shape[0], X.shape[1]]).long()
 
     def _viterbi_training_step(self, X):
 
@@ -365,11 +385,10 @@ class HiddenMarkovModel(Model):
                 print('converged at step {}'.format(i))
                 break
 
-        print('HISTORY!')
-        print(self.ll_history)
         return self.converged
 
     def _autograd(self, X, max_steps=500, epsilon=1e-2):
+
         self.ll_history = []
         self.epsilon = epsilon
 
@@ -383,14 +402,14 @@ class HiddenMarkovModel(Model):
             if self.converged:
                 break
             # print()
-            print("STEP %i of %i" % (i, max_steps))
+            # print("STEP %i of %i" % (i, max_steps))
             # optimizer = np.random.choice(optimizers)
             ll = self.log_prob(X)
             self.ll_history.append(ll.item())
             loss = -1 * ll
 
             # print(ll)
-            print("loss: ", loss)
+            # print("loss: ", loss)
             # print("T0: ", self.log_T0, self.T0)
             # print("T: ", self.log_T, self.T)
             # # print("E: ", self.log_E, self.log_E.exp())

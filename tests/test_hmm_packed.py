@@ -4,6 +4,7 @@ from torch.nn.utils.rnn import PackedSequence
 from torch.nn.utils.rnn import pad_packed_sequence
 
 from torchmm.base import CategoricalModel
+from torchmm.base import DiagNormalModel
 from torchmm.hmm_packed import HiddenMarkovModel
 from torchmm.utils import pack_list
 
@@ -397,6 +398,134 @@ def test_hmm_fit_autograd():
     print("Emission Matrix: ")
     for s in model.states:
         print([p.softmax(0) for p in s.parameters()])
+    # assert np.allclose(emission.exp().data.numpy(), True_E, atol=0.1)
+    print()
+    print("Reached Convergence: ")
+    print(converge)
+
+    assert converge
+
+    states_seq, _ = model.decode(obs_seq)
+
+    # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
+    #                           range(len(model.prob_state_1))])
+
+    # pred = (1 - state_summary[-2]) > 0.5
+    # pred = torch.cat(states_seq, 0).data.numpy()
+    # true = np.concatenate(states, 0)
+    pred = states_seq
+    true = states
+    accuracy = torch.mean(torch.abs(pred.data - true.data).float())
+    print("Accuracy: ", accuracy)
+    assert accuracy >= 0.9 or accuracy <= 0.1
+
+
+def test_hmm_fit_autograd_diagnormal():
+
+    T0 = torch.tensor([0.75, 0.25])
+    T = torch.tensor([[0.85, 0.15],
+                      [0.12, 0.88]])
+    s1_means = torch.tensor([0.0, 0.0, 0.0])
+    s1_covs = torch.tensor([1.0, 1.0, 1.0])
+    s2_means = torch.tensor([10.0, 10.0, 10.0])
+    s2_covs = torch.tensor([1.0, 1.0, 1.0])
+    s1 = DiagNormalModel(means=s1_means, covs=s1_covs)
+    s2 = DiagNormalModel(means=s2_means, covs=s2_covs)
+    model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
+    obs_seq, states = model.sample(50, 100)
+
+    T0 = torch.tensor([0.75, 0.25])
+    T = torch.tensor([[0.85, 0.15],
+                      [0.12, 0.88]])
+    s1_means = torch.tensor([3.0, 3.0, 3.0])
+    s1_covs = torch.tensor([1.0, 1.0, 1.0])
+    s2_means = torch.tensor([6.0, 6.0, 6.0])
+    s2_covs = torch.tensor([1.0, 1.0, 1.0])
+    s1 = DiagNormalModel(means=s1_means, covs=s1_covs)
+    s2 = DiagNormalModel(means=s2_means, covs=s2_covs)
+    model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
+
+    converge = model.fit(obs_seq, max_steps=500,
+                         epsilon=1e-2, alg="autograd")
+
+    # Not enough samples (only 1) to test
+    # assert np.allclose(trans0.data.numpy(), True_pi)
+    print("Pi Matrix: ")
+    print(model.T0)
+
+    print("Transition Matrix: ")
+    print(model.T)
+    # assert np.allclose(transition.exp().data.numpy(), True_T, atol=0.1)
+    print()
+    print("Emission: ")
+    for s in model.states:
+        p = list(s.parameters())
+        print("Means", p[0])
+        print("Cov", p[1].abs())
+    # assert np.allclose(emission.exp().data.numpy(), True_E, atol=0.1)
+    print()
+    print("Reached Convergence: ")
+    print(converge)
+
+    assert converge
+
+    states_seq, _ = model.decode(obs_seq)
+
+    # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
+    #                           range(len(model.prob_state_1))])
+
+    # pred = (1 - state_summary[-2]) > 0.5
+    # pred = torch.cat(states_seq, 0).data.numpy()
+    # true = np.concatenate(states, 0)
+    pred = states_seq
+    true = states
+    accuracy = torch.mean(torch.abs(pred.data - true.data).float())
+    print("Accuracy: ", accuracy)
+    assert accuracy >= 0.9 or accuracy <= 0.1
+
+
+def test_hmm_fit_viterbi_diagnormal():
+
+    T0 = torch.tensor([0.75, 0.25])
+    T = torch.tensor([[0.85, 0.15],
+                      [0.12, 0.88]])
+    s1_means = torch.tensor([0.0, 0.0, 0.0])
+    s1_covs = torch.tensor([1.0, 1.0, 1.0])
+    s2_means = torch.tensor([10.0, 10.0, 10.0])
+    s2_covs = torch.tensor([1.0, 1.0, 1.0])
+    s1 = DiagNormalModel(means=s1_means, covs=s1_covs)
+    s2 = DiagNormalModel(means=s2_means, covs=s2_covs)
+    model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
+    obs_seq, states = model.sample(50, 100)
+
+    T0 = torch.tensor([0.75, 0.25])
+    T = torch.tensor([[0.85, 0.15],
+                      [0.12, 0.88]])
+    s1_means = torch.tensor([3.0, 3.0, 3.0])
+    s1_covs = torch.tensor([1.0, 1.0, 1.0])
+    s2_means = torch.tensor([6.0, 6.0, 6.0])
+    s2_covs = torch.tensor([1.0, 1.0, 1.0])
+    s1 = DiagNormalModel(means=s1_means, covs=s1_covs)
+    s2 = DiagNormalModel(means=s2_means, covs=s2_covs)
+    model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
+
+    converge = model.fit(obs_seq, max_steps=500,
+                         epsilon=1e-2, alg="viterbi")
+
+    # Not enough samples (only 1) to test
+    # assert np.allclose(trans0.data.numpy(), True_pi)
+    print("Pi Matrix: ")
+    print(model.T0)
+
+    print("Transition Matrix: ")
+    print(model.T)
+    # assert np.allclose(transition.exp().data.numpy(), True_T, atol=0.1)
+    print()
+    print("Emission: ")
+    for s in model.states:
+        p = list(s.parameters())
+        print("Means", p[0])
+        print("Cov", p[1].abs())
     # assert np.allclose(emission.exp().data.numpy(), True_E, atol=0.1)
     print()
     print("Reached Convergence: ")

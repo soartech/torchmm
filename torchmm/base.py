@@ -13,6 +13,12 @@ class Model(object):
     should be implemented.
     """
 
+    def init_params_random(self):
+        """
+        Randomly sets the parameters of the model; used for model fitting.
+        """
+        raise NotImplementedError("init_params_random method not implemented")
+
     def sample(self, *args, **kargs):
         """
         Draws a sample from the model. This method might take additional
@@ -41,6 +47,12 @@ class Model(object):
         """
         raise NotImplementedError("parameters method not implemented")
 
+    def set_parameters(self, params):
+        """
+        Used to set the value of a models parameters
+        """
+        raise NotImplementedError("set_parameters method not implemented")
+
 
 class CategoricalModel(Model):
 
@@ -58,14 +70,15 @@ class CategoricalModel(Model):
         else:
             raise ValueError("Neither probs or logits provided; one must be.")
 
+    def init_params_random(self):
+        self.logits = torch.rand_like(self.logits).softmax(0).log()
+
     def sample(self, sample_shape=None):
         """
         Draws n samples from this model.
         """
         if sample_shape is None:
             sample_shape = torch.tensor([1])
-        print("logits", self.logits)
-        print("SAMPLE SHAPE", sample_shape)
         return Categorical(logits=self.logits).sample(sample_shape)
 
     def log_prob(self, value):
@@ -80,6 +93,12 @@ class CategoricalModel(Model):
         Returns the model parameters for optimization.
         """
         yield self.logits
+
+    def set_parameters(self, params):
+        """
+        Returns the model parameters for optimization.
+        """
+        self.logits = params[0]
 
     def fit(self, X):
         """
@@ -111,6 +130,10 @@ class DiagNormalModel(Model):
         self.means = means
         self.covs = covs
 
+    def init_params_random(self):
+        self.means.normal_()
+        self.covs.log_normal_()
+
     def sample(self, sample_shape=None):
         """
         Draws n samples from this model.
@@ -136,6 +159,14 @@ class DiagNormalModel(Model):
         """
         yield self.means
         yield self.covs
+
+    def set_parameters(self, params):
+        """
+        Sets the model parameters.
+        """
+        print("SETTING", params)
+        self.means = params[0]
+        self.covs = params[1]
 
     def fit(self, X):
         """

@@ -17,8 +17,11 @@ class HiddenMarkovModel(HiddenMarkovModel):
         Draws n_seq samples from the HMM of length num_obs.
         """
         self.update_log_params()
-        obs = torch.zeros([n_seq, n_obs], dtype=torch.long)
-        states = torch.zeros([n_seq, n_obs], dtype=torch.long)
+
+        test_sample = self.states[0].sample()
+        shape = [n_seq, n_obs] + list(test_sample.shape)[1:]
+        obs = torch.zeros(shape).type(test_sample.type())
+        states = torch.zeros([n_seq, n_obs]).long()
 
         # Sample the states
         states[:, 0] = torch.multinomial(
@@ -254,7 +257,7 @@ class HiddenMarkovModel(HiddenMarkovModel):
         # Init_viterbi_variables
         self.path_states = torch.zeros(shape).float()
         self.path_scores = torch.zeros_like(self.path_states)
-        self.states_seq = torch.zeros_like(X.data).long()
+        self.states_seq = torch.zeros(X.data.shape[0]).long()
 
     def _viterbi_training_step(self, X):
         self.update_log_params()
@@ -308,8 +311,8 @@ class HiddenMarkovModel(HiddenMarkovModel):
                 print('converged at step {}'.format(i))
                 break
 
-        print('HISTORY!')
-        print(self.ll_history)
+        # print('HISTORY!')
+        # print(self.ll_history)
         return self.converged
 
 
