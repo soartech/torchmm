@@ -383,8 +383,13 @@ def test_hmm_fit_autograd():
     s2 = CategoricalModel(logits=s2_orig)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
 
+    import time
+    t0 = time.time()
     converge = model.fit(obs_seq, max_steps=500,
                          epsilon=1e-2, alg="autograd")
+    t1 = time.time()
+    total = t1-t0
+    print("CPU runtime", total)
 
     # Not enough samples (only 1) to test
     # assert np.allclose(trans0.data.numpy(), True_pi)
