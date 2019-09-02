@@ -261,7 +261,7 @@ class HiddenMarkovModel(HiddenMarkovModel):
 
     def _viterbi_training_step(self, X):
         self.update_log_params()
-        self.ll_history.append(self.log_prob(X).item())
+        self.ll_history.append(self.log_prob(X))
         states, _ = self.decode(X)
 
         # start prob

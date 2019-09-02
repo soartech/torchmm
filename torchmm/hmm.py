@@ -352,7 +352,7 @@ class HiddenMarkovModel(Model):
         self.obs_ll_full = self._emission_ll(X)
         self._forward()
         self.ll_history.append(
-            self.forward_ll[:, -1, :].logsumexp(1).sum(0).item())
+            self.forward_ll[:, -1, :].logsumexp(1).sum(0))
 
         # do the updating
         states, _ = self._viterbi_inference(X)
@@ -418,7 +418,7 @@ class HiddenMarkovModel(Model):
             # print("STEP %i of %i" % (i, max_steps))
             # optimizer = np.random.choice(optimizers)
             ll = self.log_prob(X)
-            self.ll_history.append(ll.item())
+            self.ll_history.append(ll)
             loss = -1 * ll
 
             # print(ll)
@@ -442,7 +442,8 @@ class HiddenMarkovModel(Model):
     @property
     def converged(self):
         return (len(self.ll_history) >= 2 and
-                abs(self.ll_history[-2] - self.ll_history[-1]) < self.epsilon)
+                (self.ll_history[-2] - self.ll_history[-1]).abs() <
+                self.epsilon)
 
 
 if __name__ == "__main__":
