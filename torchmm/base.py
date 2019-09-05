@@ -154,25 +154,33 @@ class DiagNormalModel(Model):
             raise ValueError("Means and covs must have same shape!")
 
         self.means = means
-        self.means_mean_prior = torch.zeros_like(self.means)
-        self.means_std_prior = torch.ones_like(self.means)
-
         self.covs = covs
-        self.cov_alpha_prior = 100 * torch.ones_like(self.covs)
-        self.cov_beta_prior = 100 * torch.ones_like(self.covs)
+
+        self.means_prior = torch.zeros_like(self.means)
+        self.prec_alpha_prior = 1 * torch.ones_like(self.covs)
+        self.prec_beta_prior = 1 * torch.ones_like(self.covs)
+        self.n0 = torch.tensor(3.)
+        self.min_cov = torch.tensor(1e-3)
 
         self.device = "cpu"
 
     def to(self, device):
         self.means = self.means.to(device)
-        self.means_mean_prior = self.means_mean_prior.to(device)
-        self.means_std_prior = self.means_std_prior.to(device)
         self.covs = self.covs.to(device)
-        self.cov_alpha_prior = self.cov_alpha_prior.to(device)
-        self.cov_beta_prior = self.cov_alpha_prior.to(device)
+
+        self.means_prior = self.means_prior.to(device)
+        self.prec_alpha_prior = self.prec_alpha_prior.to(device)
+        self.prec_beta_prior = self.prec_alpha_prior.to(device)
+        self.n0 = self.n0.to(device)
+        self.min_cov = self.min_cov.to(device)
+
         self.device = device
 
     def init_params_random(self):
+        """
+        .. todo::
+            use priors to sample.
+        """
         self.means.normal_()
         self.covs.log_normal_()
 
@@ -187,13 +195,14 @@ class DiagNormalModel(Model):
             covariance_matrix=self.covs.abs().diag()).sample(sample_shape)
 
     def log_parameters_prob(self):
-        cov_prior = self.means_std_prior.pow(2).diag()
-        means_ll = MultivariateNormal(
-            loc=self.means_mean_prior,
+        prec = 1. / (self.min_cov + self.covs.abs())
+        cov_prior = 1. / (self.n0 * prec)
+        ll = Gamma(self.prec_alpha_prior,
+                   self.prec_beta_prior).log_prob(prec).sum()
+        ll += MultivariateNormal(
+            loc=self.means_prior,
             covariance_matrix=cov_prior).log_prob(self.means)
-        cov_ll = Gamma(self.cov_alpha_prior,
-                       self.cov_beta_prior).log_prob(self.covs.abs()).sum()
-        return means_ll + cov_ll
+        return ll
 
     def log_prob(self, value):
         """
@@ -201,7 +210,7 @@ class DiagNormalModel(Model):
         """
         return MultivariateNormal(
             loc=self.means,
-            covariance_matrix=(1e-5 + self.covs.abs()).diag()
+            covariance_matrix=(self.min_cov + self.covs.abs()).diag()
         ).log_prob(value)
 
     def parameters(self):
@@ -227,5 +236,17 @@ class DiagNormalModel(Model):
             - Utilize the priors to do a MAP estimator. See:
                 https://people.eecs.berkeley.edu/~jordan/courses/260-spring10/lectures/lecture5.pdf
         """
-        self.means = X.mean(0)
-        self.covs = X.std(0).pow(2)
+        n = X.shape[0]
+        alpha = self.prec_alpha_prior + n / 2
+        means = X.mean(0)
+        sq_error = (X - means).pow(2)
+        beta = (self.prec_beta_prior + 1/2 * sq_error.sum() + (n * self.n0) /
+                (2 * (n + self.n0)) * (means - self.means_prior).pow(2))
+        prec = alpha / beta
+        self.covs = 1 / prec
+        self.means = (((n * prec) / (n * prec + self.n0 * prec) * means) +
+                      ((self.n0 * prec) / (n * prec + self.n0 * prec) *
+                       self.means_prior))
+
+        # self.means = X.mean(0)
+        # self.covs = X.std(0).pow(2)
