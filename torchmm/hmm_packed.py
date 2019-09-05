@@ -88,9 +88,10 @@ class HiddenMarkovModel(HiddenMarkovModel):
         for step, prev_size in enumerate(self.batch_sizes[:-1]):
             start = idx
             mid = start + prev_size
+            mid_sub = start + self.batch_sizes[step+1]
             end = mid + self.batch_sizes[step+1]
             self.forward_ll[mid:end] = (
-                self._belief_prop_sum(self.forward_ll[start:mid]) +
+                self._belief_prop_sum(self.forward_ll[start:mid_sub]) +
                 self.obs_ll_full[mid:end])
             idx = mid
 
@@ -181,8 +182,9 @@ class HiddenMarkovModel(HiddenMarkovModel):
         for step, prev_size in enumerate(self.batch_sizes[:-1]):
             start = idx
             mid = start + prev_size
+            mid_sub = start + self.batch_sizes[step+1]
             end = mid + self.batch_sizes[step+1]
-            mv, mi = self._belief_prop_max(self.path_scores[start:mid])
+            mv, mi = self._belief_prop_max(self.path_scores[start:mid_sub])
             self.path_states[mid:end] = mi.squeeze(1)
             self.path_scores[mid:end] = mv + obs_ll_full[mid:end]
             idx = mid
