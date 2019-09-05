@@ -5,6 +5,8 @@ includes some very basic models for discrete and continuous emissions.
 import torch
 from torch.distributions import Categorical
 from torch.distributions.multivariate_normal import MultivariateNormal
+from torch.distributions.dirichlet import Dirichlet
+from torch.distributions.gamma import Gamma
 
 
 class Model(object):
@@ -18,6 +20,12 @@ class Model(object):
         Randomly sets the parameters of the model; used for model fitting.
         """
         raise NotImplementedError("init_params_random method not implemented")
+
+    def log_parameters_prob(self):
+        """
+        Returns the loglikelihood of the parameter estimates given the prior.
+        """
+        raise NotImplementedError("log_parameters_prob method not implemented")
 
     def to(self, device):
         """
@@ -76,8 +84,17 @@ class CategoricalModel(Model):
         else:
             raise ValueError("Neither probs or logits provided; one must be.")
 
+        self.device = "cpu"
+
+        self.prior = torch.ones_like(self.logits)
+
     def to(self, device):
         self.logits = self.logits.to(device)
+        self.prior = self.prior.to(device)
+        self.device = device
+
+    def log_parameters_prob(self):
+        return Dirichlet(self.prior).log_prob(self.logits.softmax(0))
 
     def init_params_random(self):
         self.logits = torch.rand_like(self.logits).softmax(0).log()
@@ -87,7 +104,7 @@ class CategoricalModel(Model):
         Draws n samples from this model.
         """
         if sample_shape is None:
-            sample_shape = torch.tensor([1])
+            sample_shape = torch.tensor([1], device=self.device)
         return Categorical(logits=self.logits).sample(sample_shape)
 
     def log_prob(self, value):
@@ -137,11 +154,23 @@ class DiagNormalModel(Model):
             raise ValueError("Means and covs must have same shape!")
 
         self.means = means
+        self.means_mean_prior = torch.zeros_like(self.means)
+        self.means_std_prior = torch.ones_like(self.means)
+
         self.covs = covs
+        self.cov_alpha_prior = 100 * torch.ones_like(self.covs)
+        self.cov_beta_prior = 100 * torch.ones_like(self.covs)
+
+        self.device = "cpu"
 
     def to(self, device):
         self.means = self.means.to(device)
+        self.means_mean_prior = self.means_mean_prior.to(device)
+        self.means_std_prior = self.means_std_prior.to(device)
         self.covs = self.covs.to(device)
+        self.cov_alpha_prior = self.cov_alpha_prior.to(device)
+        self.cov_beta_prior = self.cov_alpha_prior.to(device)
+        self.device = device
 
     def init_params_random(self):
         self.means.normal_()
@@ -152,19 +181,28 @@ class DiagNormalModel(Model):
         Draws n samples from this model.
         """
         if sample_shape is None:
-            sample_shape = torch.tensor([1])
+            sample_shape = torch.tensor([1], device=self.device)
         return MultivariateNormal(
             loc=self.means,
             covariance_matrix=self.covs.abs().diag()).sample(sample_shape)
 
+    def log_parameters_prob(self):
+        cov_prior = self.means_std_prior.pow(2).diag()
+        means_ll = MultivariateNormal(
+            loc=self.means_mean_prior,
+            covariance_matrix=cov_prior).log_prob(self.means)
+        cov_ll = Gamma(self.cov_alpha_prior,
+                       self.cov_beta_prior).log_prob(self.covs.abs()).sum()
+        return means_ll + cov_ll
+
     def log_prob(self, value):
         """
-        Returns the loglikelihood of x given the current categorical
-        distribution.
+        Returns the loglikelihood of x given the current parameters.
         """
         return MultivariateNormal(
             loc=self.means,
-            covariance_matrix=self.covs.abs().diag()).log_prob(value)
+            covariance_matrix=(1e-5 + self.covs.abs()).diag()
+        ).log_prob(value)
 
     def parameters(self):
         """
@@ -186,7 +224,8 @@ class DiagNormalModel(Model):
         Update the logit vector based on the observed counts.
 
         .. todo::
-            Maybe could be modified with weights to support baum welch?
+            - Utilize the priors to do a MAP estimator. See:
+                https://people.eecs.berkeley.edu/~jordan/courses/260-spring10/lectures/lecture5.pdf
         """
         self.means = X.mean(0)
         self.covs = X.std(0).pow(2)

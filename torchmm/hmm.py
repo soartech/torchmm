@@ -3,6 +3,7 @@ import torch.optim as optim
 
 from torchmm.base import Model
 from torchmm.base import CategoricalModel
+from torch.distributions.dirichlet import Dirichlet
 
 
 class HiddenMarkovModel(Model):
@@ -50,19 +51,35 @@ class HiddenMarkovModel(Model):
         else:
             self.logit_T = torch.zeros([len(states), len(states)]).float()
 
+        self.T0_prior = torch.ones_like(T0)
+        self.T_prior = torch.ones_like(T)
+
     def to(self, device):
         self.device = device
         self.logit_T0 = self.logit_T0.to(device)
         self.logit_T = self.logit_T.to(device)
+        self.T0_prior = self.T0_prior.to(device)
+        self.T_prior = self.T_prior.to(device)
+
         for s in self.states:
             s.to(device)
 
+    def log_parameters_prob(self):
+        """
+        Computes the log probability of the parameters given priors.
+        """
+        ll = Dirichlet(self.T0_prior).log_prob(self.T0)
+        ll += Dirichlet(self.T_prior).log_prob(self.T).sum(0)
+        for s in self.states:
+            ll += s.log_parameters_prob()
+        return ll
+
     def init_params_random(self):
         """
-        Randomly sets the parameters of the model.
+        Randomly sets the parameters of the model using the dirchlet priors.
         """
-        self.logit_T0 = torch.rand_like(self.logit_T0).softmax(0).log()
-        self.logit_T = torch.rand_like(self.logit_T).softmax(1).log()
+        self.logit_T0 = Dirichlet(self.T0_prior).sample().log()
+        self.logit_T = Dirichlet(self.T_prior).sample().log()
         for s in self.states:
             s.init_params_random()
 
@@ -360,7 +377,8 @@ class HiddenMarkovModel(Model):
         # start prob
         s_counts = states[:, 0].bincount(minlength=len(self.states)).float()
         # s_counts = states[:self.batch_sizes[0]].bincount(minlength=self.S)
-        self.logit_T0 = torch.log(s_counts / s_counts.sum())
+        self.logit_T0 = torch.log(s_counts + self.T0_prior /
+                                  (s_counts.sum() + self.T0_prior.sum()))
 
         # transition
         t_counts = torch.zeros_like(self.log_T).float()
@@ -369,8 +387,9 @@ class HiddenMarkovModel(Model):
             # print(states[:, t], states[:, t+1])
             t_counts[states[:, t], states[:, t+1]] += 1
 
-        self.logit_T = torch.log(t_counts /
-                                 t_counts.sum(1).view(-1, 1))
+        self.logit_T = torch.log(t_counts + self.T_prior /
+                                 (t_counts.sum(1) +
+                                  self.T_prior.sum(1)).view(-1, 1))
 
         # emission
         self._update_emissions_viterbi_training(states, X)
@@ -407,7 +426,7 @@ class HiddenMarkovModel(Model):
 
         for p in self.parameters():
             p.requires_grad_(True)
-        optimizer = optim.AdamW(self.parameters(), lr=1)
+        optimizer = optim.AdamW(self.parameters(), lr=1e-2)
 
         for i in range(max_steps):
 
@@ -417,12 +436,12 @@ class HiddenMarkovModel(Model):
             # print()
             # print("STEP %i of %i" % (i, max_steps))
             # optimizer = np.random.choice(optimizers)
-            ll = self.log_prob(X)
+            ll = self.log_prob(X) + self.log_parameters_prob()
             self.ll_history.append(ll)
             loss = -1 * ll
 
             # print(ll)
-            # print("loss: ", loss)
+            print("loss: ", loss, "(%i of %i)" % (i, max_steps))
             # print("T0: ", self.log_T0, self.T0)
             # print("T: ", self.log_T, self.T)
             # # print("E: ", self.log_E, self.log_E.exp())
