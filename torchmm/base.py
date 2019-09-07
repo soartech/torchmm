@@ -70,23 +70,31 @@ class Model(object):
 
 class CategoricalModel(Model):
 
-    def __init__(self, probs=None, logits=None):
+    def __init__(self, probs=None, logits=None, prior=None):
         """
         Accepts a set of probabilites OR logits for the model, NOT both.
+
+        This also accepts a Dirichlet, or counts, prior.
         """
         if probs is not None and logits is not None:
             raise ValueError("Both probs and logits provided; only one should"
                              " be used.")
         elif probs is not None:
-            self.logits = probs.log()
+            self.logits = probs.float().log()
         elif logits is not None:
-            self.logits = logits
+            self.logits = logits.float()
         else:
             raise ValueError("Neither probs or logits provided; one must be.")
 
-        self.device = "cpu"
+        if prior is None:
+            self.prior = torch.ones_like(self.logits)
+        elif prior.shape == logits.shape:
+            self.prior = prior.float()
+        else:
+            raise ValueError("Invalid prior. Ensure shape equals the shape of"
+                             " the logits or probs provided.")
 
-        self.prior = torch.ones_like(self.logits)
+        self.device = "cpu"
 
     def to(self, device):
         self.logits = self.logits.to(device)
@@ -134,7 +142,9 @@ class CategoricalModel(Model):
             Maybe could be modified with weights to support baum welch?
         """
         counts = X.bincount(minlength=self.logits.shape[0]).float()
-        prob = counts / counts.sum()
+        print(counts)
+        print(self.prior)
+        prob = (counts + self.prior) / (counts.sum() + self.prior.sum())
         self.logits = prob.log()
 
 
