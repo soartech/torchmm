@@ -386,7 +386,7 @@ def test_hmm_fit_autograd():
     import time
     t0 = time.time()
     converge = model.fit(obs_seq, max_steps=500,
-                         epsilon=1e-2, alg="autograd")
+                         epsilon=1e-2, alg="autograd", lr=1e-1)
     t1 = time.time()
     total = t1-t0
     print("CPU runtime", total)
@@ -431,11 +431,11 @@ def test_hmm_fit_autograd_diagnormal():
     T = torch.tensor([[0.85, 0.15],
                       [0.12, 0.88]])
     s1_means = torch.tensor([0.0, 0.0, 0.0])
-    s1_covs = torch.tensor([1.0, 1.0, 1.0])
+    s1_precs = torch.tensor([1.0, 1.0, 1.0])
     s2_means = torch.tensor([10.0, 10.0, 10.0])
-    s2_covs = torch.tensor([1.0, 1.0, 1.0])
-    s1 = DiagNormalModel(means=s1_means, covs=s1_covs)
-    s2 = DiagNormalModel(means=s2_means, covs=s2_covs)
+    s2_precs = torch.tensor([1.0, 1.0, 1.0])
+    s1 = DiagNormalModel(means=s1_means, precs=s1_precs)
+    s2 = DiagNormalModel(means=s2_means, precs=s2_precs)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
     obs_seq, states = model.sample(50, 100)
 
@@ -443,15 +443,15 @@ def test_hmm_fit_autograd_diagnormal():
     T = torch.tensor([[0.85, 0.15],
                       [0.12, 0.88]])
     s1_means = torch.tensor([3.0, 3.0, 3.0])
-    s1_covs = torch.tensor([1.0, 1.0, 1.0])
+    s1_precs = torch.tensor([1.0, 1.0, 1.0])
     s2_means = torch.tensor([6.0, 6.0, 6.0])
-    s2_covs = torch.tensor([1.0, 1.0, 1.0])
-    s1 = DiagNormalModel(means=s1_means, covs=s1_covs)
-    s2 = DiagNormalModel(means=s2_means, covs=s2_covs)
+    s2_precs = torch.tensor([1.0, 1.0, 1.0])
+    s1 = DiagNormalModel(means=s1_means, precs=s1_precs)
+    s2 = DiagNormalModel(means=s2_means, precs=s2_precs)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
 
     converge = model.fit(obs_seq, max_steps=500,
-                         epsilon=1e-2, alg="autograd")
+                         epsilon=1e-2, alg="autograd", lr=1e-1)
 
     # Not enough samples (only 1) to test
     # assert np.allclose(trans0.data.numpy(), True_pi)
@@ -495,11 +495,11 @@ def test_hmm_fit_viterbi_diagnormal():
     T = torch.tensor([[0.85, 0.15],
                       [0.12, 0.88]])
     s1_means = torch.tensor([0.0, 0.0, 0.0])
-    s1_covs = torch.tensor([1.0, 1.0, 1.0])
+    s1_precs = torch.tensor([1.0, 1.0, 1.0])
     s2_means = torch.tensor([10.0, 10.0, 10.0])
-    s2_covs = torch.tensor([1.0, 1.0, 1.0])
-    s1 = DiagNormalModel(means=s1_means, covs=s1_covs)
-    s2 = DiagNormalModel(means=s2_means, covs=s2_covs)
+    s2_precs = torch.tensor([1.0, 1.0, 1.0])
+    s1 = DiagNormalModel(means=s1_means, precs=s1_precs)
+    s2 = DiagNormalModel(means=s2_means, precs=s2_precs)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
     obs_seq, states = model.sample(50, 100)
 
@@ -507,11 +507,11 @@ def test_hmm_fit_viterbi_diagnormal():
     T = torch.tensor([[0.85, 0.15],
                       [0.12, 0.88]])
     s1_means = torch.tensor([3.0, 3.0, 3.0])
-    s1_covs = torch.tensor([1.0, 1.0, 1.0])
+    s1_precs = torch.tensor([1.0, 1.0, 1.0])
     s2_means = torch.tensor([6.0, 6.0, 6.0])
-    s2_covs = torch.tensor([1.0, 1.0, 1.0])
-    s1 = DiagNormalModel(means=s1_means, covs=s1_covs)
-    s2 = DiagNormalModel(means=s2_means, covs=s2_covs)
+    s2_precs = torch.tensor([1.0, 1.0, 1.0])
+    s1 = DiagNormalModel(means=s1_means, precs=s1_precs)
+    s2 = DiagNormalModel(means=s2_means, precs=s2_precs)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
 
     converge = model.fit(obs_seq, max_steps=500,

@@ -1,9 +1,10 @@
 import torch
 import torch.optim as optim
+from torch.distributions.dirichlet import Dirichlet
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from torchmm.base import Model
 from torchmm.base import CategoricalModel
-from torch.distributions.dirichlet import Dirichlet
 
 
 class HiddenMarkovModel(Model):
@@ -205,7 +206,7 @@ class HiddenMarkovModel(Model):
                 self.backward_ll[:, t, :] + self.obs_ll_full[:, t, :])
 
     def fit(self, X, max_steps=500, epsilon=1e-2, alg="viterbi",
-            randomize_first=False):
+            randomize_first=False, **kwargs):
         """
         Learn new model parameters from X using the specified alg.
 
@@ -216,9 +217,10 @@ class HiddenMarkovModel(Model):
 
         if alg == 'viterbi':
             return self._viterbi_training(X, max_steps=max_steps,
-                                          epsilon=epsilon)
+                                          epsilon=epsilon, **kwargs)
         elif alg == 'autograd':
-            return self._autograd(X, max_steps=max_steps, epsilon=epsilon)
+            return self._autograd(X, max_steps=max_steps, epsilon=epsilon,
+                                  **kwargs)
         else:
             raise Exception("Unknown alg")
 
@@ -419,14 +421,23 @@ class HiddenMarkovModel(Model):
 
         return self.converged
 
-    def _autograd(self, X, max_steps=500, epsilon=1e-2):
+    def _autograd(self, X, max_steps=500, epsilon=1e-2, **kwargs):
 
         self.ll_history = []
         self.epsilon = epsilon
 
         for p in self.parameters():
             p.requires_grad_(True)
-        optimizer = optim.AdamW(self.parameters(), lr=1e-2)
+
+        # TODO Come up with a better way to translate kwargs into optimizer
+        # maybe just pass the whole thing in.
+        if 'lr' in kwargs:
+            learning_rate = kwargs['lr']
+        else:
+            learning_rate = 1e-3
+
+        optimizer = optim.AdamW(self.parameters(), lr=learning_rate)
+        scheduler = ReduceLROnPlateau(optimizer, 'min', verbose=True)
 
         for i in range(max_steps):
 
@@ -440,6 +451,10 @@ class HiddenMarkovModel(Model):
             self.ll_history.append(ll)
             loss = -1 * ll
 
+            if torch.isnan(loss):
+                from pprint import pprint
+                pprint(list(self.parameters()))
+
             # print(ll)
             print("loss: ", loss, "(%i of %i)" % (i, max_steps))
             # print("T0: ", self.log_T0, self.T0)
@@ -450,6 +465,7 @@ class HiddenMarkovModel(Model):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step(loss)
 
         # print('LL HISTORY', self.ll_history[-3:])
         # from matplotlib import pyplot as plt

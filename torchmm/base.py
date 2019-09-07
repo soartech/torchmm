@@ -140,33 +140,32 @@ class CategoricalModel(Model):
 
 class DiagNormalModel(Model):
 
-    def __init__(self, means, covs):
+    def __init__(self, means, precs):
         """
-        Accepts a set of mean and cov for each dimension.
+        Accepts a set of mean and precisions for each dimension.
 
         Currently assumes all dimensions are independent.
         """
         if not isinstance(means, torch.Tensor):
             raise ValueError("Means must be a tensor.")
-        if not isinstance(covs, torch.Tensor):
+        if not isinstance(precs, torch.Tensor):
             raise ValueError("Covs must be a tensor.")
-        if means.shape != covs.shape:
+        if means.shape != precs.shape:
             raise ValueError("Means and covs must have same shape!")
 
-        self.means = means
-        self.covs = covs
+        self.means = means.float()
+        self.precs = precs.float()
 
         self.means_prior = torch.zeros_like(self.means)
-        self.prec_alpha_prior = 1 * torch.ones_like(self.covs)
-        self.prec_beta_prior = 1 * torch.ones_like(self.covs)
-        self.n0 = torch.tensor(3.)
-        self.min_cov = torch.tensor(1e-3)
+        self.prec_alpha_prior = torch.ones_like(self.precs)
+        self.prec_beta_prior = torch.ones_like(self.precs)
+        self.n0 = torch.tensor(1.)
 
         self.device = "cpu"
 
     def to(self, device):
         self.means = self.means.to(device)
-        self.covs = self.covs.to(device)
+        self.precs = self.precs.to(device)
 
         self.means_prior = self.means_prior.to(device)
         self.prec_alpha_prior = self.prec_alpha_prior.to(device)
@@ -178,11 +177,18 @@ class DiagNormalModel(Model):
 
     def init_params_random(self):
         """
-        .. todo::
-            use priors to sample.
+        Sample a random parameter configuration from the priors model.
         """
-        self.means.normal_()
-        self.covs.log_normal_()
+        prec_m = Gamma(self.prec_alpha_prior,
+                       self.prec_beta_prior)
+        self.precs = prec_m.sample()
+
+        means_m = MultivariateNormal(loc=self.means_prior,
+                                     precision_matrix=(self.n0 *
+                                                       self.prec_alpha_prior /
+                                                       self.prec_beta_prior
+                                                       ).diag())
+        self.means = means_m.sample()
 
     def sample(self, sample_shape=None):
         """
@@ -192,16 +198,15 @@ class DiagNormalModel(Model):
             sample_shape = torch.tensor([1], device=self.device)
         return MultivariateNormal(
             loc=self.means,
-            covariance_matrix=self.covs.abs().diag()).sample(sample_shape)
+            precision_matrix=self.precs.abs().diag()).sample(sample_shape)
 
     def log_parameters_prob(self):
-        prec = 1. / (self.min_cov + self.covs.abs())
-        cov_prior = 1. / (self.n0 * prec)
         ll = Gamma(self.prec_alpha_prior,
-                   self.prec_beta_prior).log_prob(prec).sum()
+                   self.prec_beta_prior).log_prob(self.precs.abs()).sum()
         ll += MultivariateNormal(
             loc=self.means_prior,
-            covariance_matrix=cov_prior).log_prob(self.means)
+            precision_matrix=(
+                self.n0 * self.precs.abs()).diag()).log_prob(self.means)
         return ll
 
     def log_prob(self, value):
@@ -210,7 +215,7 @@ class DiagNormalModel(Model):
         """
         return MultivariateNormal(
             loc=self.means,
-            covariance_matrix=(self.min_cov + self.covs.abs()).diag()
+            precision_matrix=self.precs.abs().diag()
         ).log_prob(value)
 
     def parameters(self):
@@ -218,15 +223,18 @@ class DiagNormalModel(Model):
         Returns the model parameters for optimization.
         """
         yield self.means
-        yield self.covs
+        yield self.precs
 
     def set_parameters(self, params):
         """
         Sets the model parameters.
+
+        .. todo::
+            Currently not tested or used.
         """
         print("SETTING", params)
         self.means = params[0]
-        self.covs = params[1]
+        self.precs = params[1]
 
     def fit(self, X):
         """
@@ -235,18 +243,22 @@ class DiagNormalModel(Model):
         .. todo::
             - Utilize the priors to do a MAP estimator. See:
                 https://people.eecs.berkeley.edu/~jordan/courses/260-spring10/lectures/lecture5.pdf
+            - Some of the math seems easier to pull out what I need from pg 8
+                here: https://www.cs.ubc.ca/~murphyk/Papers/bayesGauss.pdf
         """
-        n = X.shape[0]
-        alpha = self.prec_alpha_prior + n / 2
-        means = X.mean(0)
-        sq_error = (X - means).pow(2)
-        beta = (self.prec_beta_prior + 1/2 * sq_error.sum() + (n * self.n0) /
-                (2 * (n + self.n0)) * (means - self.means_prior).pow(2))
-        prec = alpha / beta
-        self.covs = 1 / prec
-        self.means = (((n * prec) / (n * prec + self.n0 * prec) * means) +
-                      ((self.n0 * prec) / (n * prec + self.n0 * prec) *
-                       self.means_prior))
+        if X.shape[1] != self.means.shape[0]:
+            raise ValueError("Mismatch in number of features.")
 
-        # self.means = X.mean(0)
-        # self.covs = X.std(0).pow(2)
+        n = X.shape[0]
+
+        means = X.mean(0)
+        self.means = ((self.n0 * self.means_prior + n * means) /
+                      (self.n0 + n))
+
+        alpha = self.prec_alpha_prior + n / 2
+        sq_error = (X - means).pow(2)
+        beta = (self.prec_beta_prior +
+                1/2 * sq_error.sum() +
+                (n * self.n0) * (means - self.means_prior).pow(2) /
+                (2 * (n + self.n0)))
+        self.precs = alpha / beta
