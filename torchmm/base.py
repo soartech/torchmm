@@ -105,7 +105,7 @@ class CategoricalModel(Model):
         return Dirichlet(self.prior).log_prob(self.logits.softmax(0))
 
     def init_params_random(self):
-        self.logits = torch.rand_like(self.logits).softmax(0).log()
+        self.logits = Dirichlet(self.prior).sample().log()
 
     def sample(self, sample_shape=None):
         """
