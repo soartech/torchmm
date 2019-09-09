@@ -3,7 +3,8 @@ import logging
 import sys
 from torch.nn.utils.rnn import pack_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
-
+from torch.distributions import Categorical
+    
 import numpy as np
 
 
@@ -47,3 +48,32 @@ def unpack_list(X):
     # lengths = lengths[X.sorted_indices]
     seqs = [X_unpacked[i, :l] for i, l in enumerate(lengths)]
     return seqs
+
+
+def kmeans_init(X, k):
+    """
+    Returns centroids for clusters using the kmeans++ algorithm. Accepts the
+    data and the number of desired clusters (k).
+
+    See: https://en.wikipedia.org/wiki/K-means%2B%2B
+    """
+    n = X.shape[0]
+
+    idx = torch.randint(high=n, size=(1,))
+    centroids = X[idx]
+    X_s = torch.cat([X[0:idx], X[idx+1:]])
+
+    while centroids.shape[0] < k:
+        A = centroids.unsqueeze(dim=1)
+        B = X_s.unsqueeze(dim=0)
+        dis = (A-B).pow(2)
+        dis = dis.sum(dim=-1).squeeze()
+        if len(dis.shape) > 1:
+            min_dis = dis.min(dim=1)[0]
+        else:
+            min_dis = dis
+        idx = Categorical(probs=min_dis.softmax(0)).sample((1,))
+        centroids = torch.cat((centroids, X_s[idx]))
+        X_s = torch.cat([X_s[0:idx], X_s[idx+1:]])
+
+    return centroids
