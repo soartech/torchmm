@@ -1,4 +1,3 @@
-import pytest
 import torch
 from torch.distributions.multivariate_normal import MultivariateNormal
 
@@ -20,17 +19,11 @@ def test_pack_and_unpack_lists():
         assert torch.allclose(Y[i], seqs[i])
 
 
-@pytest.mark.xfail
 def test_kmeans_init():
     means = torch.tensor([0.0, 0.0])
     mv = MultivariateNormal(loc=means,
                             precision_matrix=torch.ones_like(means).diag())
     X = mv.sample((100,))
-    centroids = kmeans_init(X, 3)
+    centroids = kmeans_init(X, 10)
 
-    # from matplotlib import pyplot as plt
-    # plt.plot(X[:, 0], X[:, 1], 'b+')
-    # plt.plot(centroids[:, 0], centroids[:, 1], 'ro')
-    # plt.show()
-
-    assert False
+    assert centroids.shape[0] == 10
