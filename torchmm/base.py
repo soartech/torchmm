@@ -5,6 +5,8 @@ includes some very basic models for discrete and continuous emissions.
 import torch
 from torch.distributions import Categorical
 from torch.distributions.multivariate_normal import MultivariateNormal
+from torch.distributions.dirichlet import Dirichlet
+from torch.distributions.gamma import Gamma
 
 
 class Model(object):
@@ -18,6 +20,18 @@ class Model(object):
         Randomly sets the parameters of the model; used for model fitting.
         """
         raise NotImplementedError("init_params_random method not implemented")
+
+    def log_parameters_prob(self):
+        """
+        Returns the loglikelihood of the parameter estimates given the prior.
+        """
+        raise NotImplementedError("log_parameters_prob method not implemented")
+
+    def to(self, device):
+        """
+        Moves the model's parameters / tensors to the specified device.
+        """
+        raise NotImplementedError("to method not implemented")
 
     def sample(self, *args, **kargs):
         """
@@ -56,29 +70,49 @@ class Model(object):
 
 class CategoricalModel(Model):
 
-    def __init__(self, probs=None, logits=None):
+    def __init__(self, probs=None, logits=None, prior=None):
         """
         Accepts a set of probabilites OR logits for the model, NOT both.
+
+        This also accepts a Dirichlet, or counts, prior.
         """
         if probs is not None and logits is not None:
             raise ValueError("Both probs and logits provided; only one should"
                              " be used.")
         elif probs is not None:
-            self.logits = probs.log()
+            self.logits = probs.float().log()
         elif logits is not None:
-            self.logits = logits
+            self.logits = logits.float()
         else:
             raise ValueError("Neither probs or logits provided; one must be.")
 
+        if prior is None:
+            self.prior = torch.ones_like(self.logits)
+        elif prior.shape == logits.shape:
+            self.prior = prior.float()
+        else:
+            raise ValueError("Invalid prior. Ensure shape equals the shape of"
+                             " the logits or probs provided.")
+
+        self.device = "cpu"
+
+    def to(self, device):
+        self.logits = self.logits.to(device)
+        self.prior = self.prior.to(device)
+        self.device = device
+
+    def log_parameters_prob(self):
+        return Dirichlet(self.prior).log_prob(self.logits.softmax(0))
+
     def init_params_random(self):
-        self.logits = torch.rand_like(self.logits).softmax(0).log()
+        self.logits = Dirichlet(self.prior).sample().log()
 
     def sample(self, sample_shape=None):
         """
         Draws n samples from this model.
         """
         if sample_shape is None:
-            sample_shape = torch.tensor([1])
+            sample_shape = torch.tensor([1], device=self.device)
         return Categorical(logits=self.logits).sample(sample_shape)
 
     def log_prob(self, value):
@@ -108,72 +142,133 @@ class CategoricalModel(Model):
             Maybe could be modified with weights to support baum welch?
         """
         counts = X.bincount(minlength=self.logits.shape[0]).float()
-        prob = counts / counts.sum()
+        print(counts)
+        print(self.prior)
+        prob = (counts + self.prior) / (counts.sum() + self.prior.sum())
         self.logits = prob.log()
 
 
 class DiagNormalModel(Model):
 
-    def __init__(self, means, covs):
+    def __init__(self, means, precs):
         """
-        Accepts a set of mean and cov for each dimension.
+        Accepts a set of mean and precisions for each dimension.
 
         Currently assumes all dimensions are independent.
         """
         if not isinstance(means, torch.Tensor):
             raise ValueError("Means must be a tensor.")
-        if not isinstance(covs, torch.Tensor):
+        if not isinstance(precs, torch.Tensor):
             raise ValueError("Covs must be a tensor.")
-        if means.shape != covs.shape:
+        if means.shape != precs.shape:
             raise ValueError("Means and covs must have same shape!")
 
-        self.means = means
-        self.covs = covs
+        self.means = means.float()
+        self.precs = precs.float()
+
+        self.means_prior = torch.zeros_like(self.means)
+        self.prec_alpha_prior = torch.ones_like(self.precs)
+        self.prec_beta_prior = torch.ones_like(self.precs)
+        self.n0 = torch.tensor(1.)
+
+        self.device = "cpu"
+
+    def to(self, device):
+        self.means = self.means.to(device)
+        self.precs = self.precs.to(device)
+
+        self.means_prior = self.means_prior.to(device)
+        self.prec_alpha_prior = self.prec_alpha_prior.to(device)
+        self.prec_beta_prior = self.prec_alpha_prior.to(device)
+        self.n0 = self.n0.to(device)
+        self.min_cov = self.min_cov.to(device)
+
+        self.device = device
 
     def init_params_random(self):
-        self.means.normal_()
-        self.covs.log_normal_()
+        """
+        Sample a random parameter configuration from the priors model.
+        """
+        prec_m = Gamma(self.prec_alpha_prior,
+                       self.prec_beta_prior)
+        self.precs = prec_m.sample()
+
+        means_m = MultivariateNormal(loc=self.means_prior,
+                                     precision_matrix=(self.n0 *
+                                                       self.prec_alpha_prior /
+                                                       self.prec_beta_prior
+                                                       ).diag())
+        self.means = means_m.sample()
 
     def sample(self, sample_shape=None):
         """
         Draws n samples from this model.
         """
         if sample_shape is None:
-            sample_shape = torch.tensor([1])
+            sample_shape = torch.tensor([1], device=self.device)
         return MultivariateNormal(
             loc=self.means,
-            covariance_matrix=self.covs.abs().diag()).sample(sample_shape)
+            precision_matrix=self.precs.abs().diag()).sample(sample_shape)
+
+    def log_parameters_prob(self):
+        ll = Gamma(self.prec_alpha_prior,
+                   self.prec_beta_prior).log_prob(self.precs.abs()).sum()
+        ll += MultivariateNormal(
+            loc=self.means_prior,
+            precision_matrix=(
+                self.n0 * self.precs.abs()).diag()).log_prob(self.means)
+        return ll
 
     def log_prob(self, value):
         """
-        Returns the loglikelihood of x given the current categorical
-        distribution.
+        Returns the loglikelihood of x given the current parameters.
         """
         return MultivariateNormal(
             loc=self.means,
-            covariance_matrix=self.covs.abs().diag()).log_prob(value)
+            precision_matrix=self.precs.abs().diag()
+        ).log_prob(value)
 
     def parameters(self):
         """
         Returns the model parameters for optimization.
         """
         yield self.means
-        yield self.covs
+        yield self.precs
 
     def set_parameters(self, params):
         """
         Sets the model parameters.
+
+        .. todo::
+            Currently not tested or used.
         """
         print("SETTING", params)
         self.means = params[0]
-        self.covs = params[1]
+        self.precs = params[1]
 
     def fit(self, X):
         """
         Update the logit vector based on the observed counts.
 
         .. todo::
-            Maybe could be modified with weights to support baum welch?
+            - Utilize the priors to do a MAP estimator. See:
+                https://people.eecs.berkeley.edu/~jordan/courses/260-spring10/lectures/lecture5.pdf
+            - Some of the math seems easier to pull out what I need from pg 8
+                here: https://www.cs.ubc.ca/~murphyk/Papers/bayesGauss.pdf
         """
-        self.means = X.mean(0)
-        self.covs = X.std(0).pow(2)
+        if X.shape[1] != self.means.shape[0]:
+            raise ValueError("Mismatch in number of features.")
+
+        n = X.shape[0]
+
+        means = X.mean(0)
+        self.means = ((self.n0 * self.means_prior + n * means) /
+                      (self.n0 + n))
+
+        alpha = self.prec_alpha_prior + n / 2
+        sq_error = (X - means).pow(2)
+        beta = (self.prec_beta_prior +
+                1/2 * sq_error.sum() +
+                (n * self.n0) * (means - self.means_prior).pow(2) /
+                (2 * (n + self.n0)))
+        self.precs = alpha / beta

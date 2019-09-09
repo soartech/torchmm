@@ -1,5 +1,7 @@
 import torch
 import torch.optim as optim
+from torch.distributions.dirichlet import Dirichlet
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from torchmm.base import Model
 from torchmm.base import CategoricalModel
@@ -39,6 +41,7 @@ class HiddenMarkovModel(Model):
             raise ValueError("T0 has incorrect number of states")
 
         self.states = states
+        self.device = "cpu"
 
         if T0 is not None:
             self.logit_T0 = T0.log()
@@ -49,12 +52,35 @@ class HiddenMarkovModel(Model):
         else:
             self.logit_T = torch.zeros([len(states), len(states)]).float()
 
+        self.T0_prior = torch.ones_like(T0)
+        self.T_prior = torch.ones_like(T)
+
+    def to(self, device):
+        self.device = device
+        self.logit_T0 = self.logit_T0.to(device)
+        self.logit_T = self.logit_T.to(device)
+        self.T0_prior = self.T0_prior.to(device)
+        self.T_prior = self.T_prior.to(device)
+
+        for s in self.states:
+            s.to(device)
+
+    def log_parameters_prob(self):
+        """
+        Computes the log probability of the parameters given priors.
+        """
+        ll = Dirichlet(self.T0_prior).log_prob(self.T0)
+        ll += Dirichlet(self.T_prior).log_prob(self.T).sum(0)
+        for s in self.states:
+            ll += s.log_parameters_prob()
+        return ll
+
     def init_params_random(self):
         """
-        Randomly sets the parameters of the model.
+        Randomly sets the parameters of the model using the dirchlet priors.
         """
-        self.logit_T0 = torch.rand_like(self.logit_T0).softmax(0).log()
-        self.logit_T = torch.rand_like(self.logit_T).softmax(1).log()
+        self.logit_T0 = Dirichlet(self.T0_prior).sample().log()
+        self.logit_T = Dirichlet(self.T_prior).sample().log()
         for s in self.states:
             s.init_params_random()
 
@@ -95,8 +121,8 @@ class HiddenMarkovModel(Model):
 
         test_sample = self.states[0].sample()
         shape = [n_seq, n_obs] + list(test_sample.shape)[1:]
-        obs = torch.zeros(shape).type(test_sample.type())
-        states = torch.zeros([n_seq, n_obs]).long()
+        obs = torch.zeros(shape, device=self.device).type(test_sample.type())
+        states = torch.zeros([n_seq, n_obs], device=self.device).long()
 
         # Sample the states
         states[:, 0] = torch.multinomial(
@@ -122,7 +148,8 @@ class HiddenMarkovModel(Model):
         return self.filter(X).logsumexp(1).sum(0)
 
     def _emission_ll(self, X):
-        ll = torch.zeros([X.shape[0], X.shape[1], len(self.states)]).float()
+        ll = torch.zeros([X.shape[0], X.shape[1], len(self.states)],
+                         device=self.device).float()
         for i, s in enumerate(self.states):
             ll[:, :, i] = s.log_prob(X)
         return ll
@@ -139,7 +166,8 @@ class HiddenMarkovModel(Model):
         """
         self.update_log_params()
         self.forward_ll = torch.zeros([X.shape[0], X.shape[1],
-                                       len(self.states)]).float()
+                                       len(self.states)],
+                                      device=self.device).float()
         self.obs_ll_full = self._emission_ll(X)
         self._forward()
         return self.forward_ll[:, -1, :]
@@ -171,13 +199,14 @@ class HiddenMarkovModel(Model):
         """
         N = self.obs_ll_full.shape[0]
         T = self.obs_ll_full.shape[1]
-        self.backward_ll[:, T-1] = torch.ones([N, len(self.states)]).float()
+        self.backward_ll[:, T-1] = torch.ones([N, len(self.states)],
+                                              device=self.device).float()
         for t in range(T-1, 0, -1):
             self.backward_ll[:, t-1] = self._belief_prop_sum(
                 self.backward_ll[:, t, :] + self.obs_ll_full[:, t, :])
 
     def fit(self, X, max_steps=500, epsilon=1e-2, alg="viterbi",
-            randomize_first=False):
+            randomize_first=False, **kwargs):
         """
         Learn new model parameters from X using the specified alg.
 
@@ -188,9 +217,10 @@ class HiddenMarkovModel(Model):
 
         if alg == 'viterbi':
             return self._viterbi_training(X, max_steps=max_steps,
-                                          epsilon=epsilon)
+                                          epsilon=epsilon, **kwargs)
         elif alg == 'autograd':
-            return self._autograd(X, max_steps=max_steps, epsilon=epsilon)
+            return self._autograd(X, max_steps=max_steps, epsilon=epsilon,
+                                  **kwargs)
         else:
             raise Exception("Unknown alg")
 
@@ -290,7 +320,7 @@ class HiddenMarkovModel(Model):
 
     def _init_forw_back(self, X):
         shape = [X.shape[0], X.shape[1], len(self.states)]
-        self.forward_ll = torch.zeros(shape).float()
+        self.forward_ll = torch.zeros(shape, device=self.device).float()
         self.backward_ll = torch.zeros_like(self.forward_ll)
         self.posterior_ll = torch.zeros_like(self.forward_ll)
 
@@ -328,9 +358,10 @@ class HiddenMarkovModel(Model):
         shape = [X.shape[0], X.shape[1], len(self.states)]
 
         # Init_viterbi_variables
-        self.path_states = torch.zeros(shape).float()
+        self.path_states = torch.zeros(shape, device=self.device).float()
         self.path_scores = torch.zeros_like(self.path_states)
-        self.states_seq = torch.zeros([X.shape[0], X.shape[1]]).long()
+        self.states_seq = torch.zeros([X.shape[0], X.shape[1]],
+                                      device=self.device).long()
 
     def _viterbi_training_step(self, X):
 
@@ -340,7 +371,7 @@ class HiddenMarkovModel(Model):
         self.obs_ll_full = self._emission_ll(X)
         self._forward()
         self.ll_history.append(
-            self.forward_ll[:, -1, :].logsumexp(1).sum(0).item())
+            self.forward_ll[:, -1, :].logsumexp(1).sum(0))
 
         # do the updating
         states, _ = self._viterbi_inference(X)
@@ -348,7 +379,8 @@ class HiddenMarkovModel(Model):
         # start prob
         s_counts = states[:, 0].bincount(minlength=len(self.states)).float()
         # s_counts = states[:self.batch_sizes[0]].bincount(minlength=self.S)
-        self.logit_T0 = torch.log(s_counts / s_counts.sum())
+        self.logit_T0 = torch.log(s_counts + self.T0_prior /
+                                  (s_counts.sum() + self.T0_prior.sum()))
 
         # transition
         t_counts = torch.zeros_like(self.log_T).float()
@@ -357,8 +389,9 @@ class HiddenMarkovModel(Model):
             # print(states[:, t], states[:, t+1])
             t_counts[states[:, t], states[:, t+1]] += 1
 
-        self.logit_T = torch.log(t_counts /
-                                 t_counts.sum(1).view(-1, 1))
+        self.logit_T = torch.log(t_counts + self.T_prior /
+                                 (t_counts.sum(1) +
+                                  self.T_prior.sum(1)).view(-1, 1))
 
         # emission
         self._update_emissions_viterbi_training(states, X)
@@ -374,7 +407,8 @@ class HiddenMarkovModel(Model):
 
         # used for convergence testing.
         self.forward_ll = torch.zeros([X.shape[0], X.shape[1],
-                                       len(self.states)]).float()
+                                       len(self.states)],
+                                      device=self.device).float()
         self.ll_history = []
 
         self.epsilon = epsilon
@@ -387,14 +421,23 @@ class HiddenMarkovModel(Model):
 
         return self.converged
 
-    def _autograd(self, X, max_steps=500, epsilon=1e-2):
+    def _autograd(self, X, max_steps=500, epsilon=1e-2, **kwargs):
 
         self.ll_history = []
         self.epsilon = epsilon
 
         for p in self.parameters():
             p.requires_grad_(True)
-        optimizer = optim.AdamW(self.parameters(), lr=1)
+
+        # TODO Come up with a better way to translate kwargs into optimizer
+        # maybe just pass the whole thing in.
+        if 'lr' in kwargs:
+            learning_rate = kwargs['lr']
+        else:
+            learning_rate = 1e-3
+
+        optimizer = optim.AdamW(self.parameters(), lr=learning_rate)
+        scheduler = ReduceLROnPlateau(optimizer, 'min', verbose=True)
 
         for i in range(max_steps):
 
@@ -404,12 +447,16 @@ class HiddenMarkovModel(Model):
             # print()
             # print("STEP %i of %i" % (i, max_steps))
             # optimizer = np.random.choice(optimizers)
-            ll = self.log_prob(X)
-            self.ll_history.append(ll.item())
+            ll = self.log_prob(X) + self.log_parameters_prob()
+            self.ll_history.append(ll)
             loss = -1 * ll
 
+            if torch.isnan(loss):
+                from pprint import pprint
+                pprint(list(self.parameters()))
+
             # print(ll)
-            # print("loss: ", loss)
+            print("loss: ", loss, "(%i of %i)" % (i, max_steps))
             # print("T0: ", self.log_T0, self.T0)
             # print("T: ", self.log_T, self.T)
             # # print("E: ", self.log_E, self.log_E.exp())
@@ -418,6 +465,7 @@ class HiddenMarkovModel(Model):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step(loss)
 
         # print('LL HISTORY', self.ll_history[-3:])
         # from matplotlib import pyplot as plt
@@ -429,7 +477,8 @@ class HiddenMarkovModel(Model):
     @property
     def converged(self):
         return (len(self.ll_history) >= 2 and
-                abs(self.ll_history[-2] - self.ll_history[-1]) < self.epsilon)
+                (self.ll_history[-2] - self.ll_history[-1]).abs() <
+                self.epsilon)
 
 
 if __name__ == "__main__":

@@ -1,3 +1,11 @@
+# Cache the python packages
+variables:
+    PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths:
+    - .cache/pip
+
 stages:
   - lint
   - test
@@ -12,6 +20,7 @@ flake8:
     - retval=0
     - flake8 --output-file flake8.txt torchmm/ || retval=$?
     - flake8_junit flake8.txt flake8_junit.xml
+    - cat flake8.txt
     - exit "$retval"
   artifacts:
     when: always
