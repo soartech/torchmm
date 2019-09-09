@@ -1,7 +1,6 @@
 import torch
 from torch.distributions import Categorical
 import torch.optim as optim
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from torchmm.base import CategoricalModel
 from torchmm.base import DiagNormalModel
@@ -77,6 +76,15 @@ def test_diagnormalmodel_parmeters():
     p[1] += 1
     assert torch.isclose(means, torch.tensor([1.])).all()
     assert torch.isclose(precs, torch.tensor([2.])).all()
+
+
+def test_diagnomralmodel_fit_no_data():
+    m = DiagNormalModel(means=torch.tensor([0.]),
+                        precs=torch.tensor([1.]))
+    X = torch.empty((0, 1))
+    m.fit(X)
+    assert not torch.isnan(m.means).any()
+    assert not torch.isnan(m.precs).any()
 
 
 def test_diagnormalmodel_fit():

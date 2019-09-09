@@ -142,8 +142,6 @@ class CategoricalModel(Model):
             Maybe could be modified with weights to support baum welch?
         """
         counts = X.bincount(minlength=self.logits.shape[0]).float()
-        print(counts)
-        print(self.prior)
         prob = (counts + self.prior) / (counts.sum() + self.prior.sum())
         self.logits = prob.log()
 
@@ -181,7 +179,6 @@ class DiagNormalModel(Model):
         self.prec_alpha_prior = self.prec_alpha_prior.to(device)
         self.prec_beta_prior = self.prec_alpha_prior.to(device)
         self.n0 = self.n0.to(device)
-        self.min_cov = self.min_cov.to(device)
 
         self.device = device
 
@@ -261,14 +258,17 @@ class DiagNormalModel(Model):
 
         n = X.shape[0]
 
-        means = X.mean(0)
-        self.means = ((self.n0 * self.means_prior + n * means) /
-                      (self.n0 + n))
-
-        alpha = self.prec_alpha_prior + n / 2
-        sq_error = (X - means).pow(2)
-        beta = (self.prec_beta_prior +
-                1/2 * sq_error.sum() +
-                (n * self.n0) * (means - self.means_prior).pow(2) /
-                (2 * (n + self.n0)))
-        self.precs = alpha / beta
+        if n == 0:
+            self.means = self.means_prior
+            self.precs = self.prec_alpha_prior / self.prec_beta_prior
+        else:
+            means = X.mean(0)
+            self.means = ((self.n0 * self.means_prior + n * means) /
+                          (self.n0 + n))
+            alpha = self.prec_alpha_prior + n / 2
+            sq_error = (X - means).pow(2)
+            beta = (self.prec_beta_prior +
+                    1/2 * sq_error.sum() +
+                    (n * self.n0) * (means - self.means_prior).pow(2) /
+                    (2 * (n + self.n0)))
+            self.precs = alpha / beta
