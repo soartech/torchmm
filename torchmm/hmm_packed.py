@@ -275,7 +275,8 @@ class HiddenMarkovModel(HiddenMarkovModel):
         s_counts = states.data[0:states.batch_sizes[0]].bincount(
             minlength=len(self.states)).float()
         # s_counts = states[:self.batch_sizes[0]].bincount(minlength=self.S)
-        self.logit_T0 = torch.log(s_counts / s_counts.sum())
+        self.logit_T0 = torch.log((s_counts + self.T0_prior) /
+                                  (s_counts.sum() + self.T0_prior.sum()))
 
         # transition
         t_counts = torch.zeros_like(self.log_T).float()
@@ -290,8 +291,9 @@ class HiddenMarkovModel(HiddenMarkovModel):
                      states.data[mid:end]] += 1
             idx = mid
 
-        self.logit_T = torch.log(t_counts /
-                                 t_counts.sum(1).view(-1, 1))
+        self.logit_T = torch.log((t_counts + self.T_prior) /
+                                 (t_counts.sum(1).view(-1, 1) +
+                                  self.T_prior.sum(1).view(-1, 1)))
 
         # emission
         self._update_emissions_viterbi_training(states.data, X.data)
