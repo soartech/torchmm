@@ -268,7 +268,7 @@ class DiagNormalModel(Model):
             alpha = self.prec_alpha_prior + n / 2
             sq_error = (X - means).pow(2)
             beta = (self.prec_beta_prior +
-                    1/2 * sq_error.sum() +
+                    0.5 * sq_error.sum(0) +
                     (n * self.n0) * (means - self.means_prior).pow(2) /
                     (2 * (n + self.n0)))
             self.precs = alpha / beta

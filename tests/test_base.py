@@ -1,6 +1,7 @@
 import torch
 from torch.distributions import Categorical
 import torch.optim as optim
+from torch.distributions.multivariate_normal import MultivariateNormal
 
 from torchmm.base import CategoricalModel
 from torchmm.base import DiagNormalModel
@@ -85,6 +86,21 @@ def test_diagnomralmodel_fit_no_data():
     m.fit(X)
     assert not torch.isnan(m.means).any()
     assert not torch.isnan(m.precs).any()
+
+
+def test_diagnormalmodel_fit_2d():
+    m = DiagNormalModel(means=torch.tensor([0., 0.]),
+                        precs=torch.tensor([1., 1.]))
+    generator = MultivariateNormal(
+        loc=torch.tensor([0., 100.]),
+        precision_matrix=torch.tensor([4., 0.5]).diag())
+    data = generator.sample((100000,))
+
+    m.fit(data)
+    p = list(m.parameters())
+
+    assert torch.allclose(p[0], data.mean(0), atol=1e-1)
+    assert torch.allclose(p[1], 1./data.std(0).pow(2), atol=1e-1)
 
 
 def test_diagnormalmodel_fit():
