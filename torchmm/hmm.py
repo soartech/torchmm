@@ -47,13 +47,14 @@ class HiddenMarkovModel(Model):
             self.logit_T0 = T0.log()
         else:
             self.logit_T0 = torch.zeros([len(states)]).float()
+
         if T is not None:
             self.logit_T = T.log()
         else:
             self.logit_T = torch.zeros([len(states), len(states)]).float()
 
-        self.T0_prior = torch.ones_like(T0)
-        self.T_prior = torch.ones_like(T)
+        self.T0_prior = torch.ones_like(self.logit_T0)
+        self.T_prior = torch.ones_like(self.logit_T)
 
     def to(self, device):
         self.device = device
