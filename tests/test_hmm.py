@@ -583,7 +583,7 @@ def test_hmm_fit_autograd_gpu():
     obs_seq = obs_seq.to(device)
     t0 = time.time()
     converge = model.fit(obs_seq, max_steps=500,
-                         epsilon=1e-2, alg="autograd")
+                         epsilon=1e-2, alg="autograd", lr=1e-1)
     t1 = time.time()
     total = t1-t0
     print("GPU runtime", total)
