@@ -18,3 +18,7 @@ TorCHmM
 A PyTorch implementation of various hidden Markov model inference and learning algorithms.
 
 Documentation: https://chris.maclellan.hq-git.soartech.com/TorCHmM
+
+You can install the code directly to PIP with the following command:
+
+    pip install -U git+https://hq-git.soartech.com/chris.maclellan/TorCHmM@master
