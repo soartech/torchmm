@@ -113,7 +113,7 @@ pypi:
   script:
     - pip install twine
     - python setup.py sdist bdist_wheel
-    - twine upload dist/*
+    - twine upload --repository-url https://nexus.soartech.com:8443/nexus/repository/pypi-internal/ dist/*
   tags:
     - pytorch
   only:
