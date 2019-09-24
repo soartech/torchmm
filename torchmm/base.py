@@ -148,7 +148,8 @@ class CategoricalModel(Model):
 
 class DiagNormalModel(Model):
 
-    def __init__(self, means, precs):
+    def __init__(self, means, precs, means_prior=None, prec_alpha_prior=None,
+                 prec_beta_prior=None, n0=None):
         """
         Accepts a set of mean and precisions for each dimension.
 
@@ -164,10 +165,25 @@ class DiagNormalModel(Model):
         self.means = means.float()
         self.precs = precs.float()
 
-        self.means_prior = torch.zeros_like(self.means)
-        self.prec_alpha_prior = torch.ones_like(self.precs)
-        self.prec_beta_prior = torch.ones_like(self.precs)
-        self.n0 = torch.tensor(1.)
+        if means_prior is None:
+            self.means_prior = torch.zeros_like(self.means)
+        else:
+            self.means_prior = means_prior.float()
+
+        if prec_alpha_prior is None:
+            self.prec_alpha_prior = torch.ones_like(self.precs)
+        else:
+            self.prec_alpha_prior = prec_alpha_prior.float()
+
+        if prec_beta_prior is None:
+            self.prec_beta_prior = torch.ones_like(self.precs)
+        else:
+            self.prec_beta_prior = prec_beta_prior.float()
+
+        if n0 is None:
+            self.n0 = torch.tensor(1.)
+        else:
+            self.n0 = n0.float()
 
         self.device = "cpu"
 

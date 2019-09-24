@@ -22,3 +22,7 @@ Documentation: https://chris.maclellan.hq-git.soartech.com/TorCHmM
 You can install the code directly to PIP with the following command:
 
     pip install -U git+https://hq-git.soartech.com/chris.maclellan/TorCHmM@master
+
+You can also check out the module from nexus:
+
+    pip install -f https://USERNAME:PASSWORD@nexus.soartech.com:8443/nexus/repository/pypi-internal/simple/ torchmm

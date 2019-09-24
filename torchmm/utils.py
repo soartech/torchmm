@@ -1,6 +1,10 @@
 import torch
 import logging
 import sys
+from functools import wraps
+from functools import partial
+import timeit
+
 from torch.nn.utils.rnn import pack_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
 from torch.distributions import Categorical
@@ -25,6 +29,27 @@ def get_logger():
 def sample_state_transition_matrix(states):
     states = np.random.rand(states, states)
     return states/states.sum(axis=1, keepdims=True)
+
+
+def timefun(f):
+    """
+    A decorator function for calling Timer with autorange on the provided
+    function.
+    """
+
+    @wraps(f)
+    def wrapper(*args, **kwds):
+        try:
+            result = timeit.Timer(partial(f, *args, **kwds)).autorange()
+        except Exception:
+            result = [10, timeit.Timer(partial(f, *args, **kwds)).timeit(10)]
+        a = [a for a in args]
+        a += ["%s=%s" % (k, kwds[k]) for k in kwds]
+        print("Timing %s%s: %0.7f (num runs=%i)" % (f.__name__, tuple(a),
+                                                    result[1], result[0]))
+        return f(*args, **kwds)
+
+    return wrapper
 
 
 def pack_list(X, enforce_sorted=False):
