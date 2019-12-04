@@ -380,7 +380,7 @@ class HiddenMarkovModel(Model):
         # start prob
         s_counts = states[:, 0].bincount(minlength=len(self.states)).float()
         # s_counts = states[:self.batch_sizes[0]].bincount(minlength=self.S)
-        self.logit_T0 = torch.log(s_counts + self.T0_prior /
+        self.logit_T0 = torch.log((s_counts + self.T0_prior) /
                                   (s_counts.sum() + self.T0_prior.sum()))
 
         # transition
@@ -390,7 +390,7 @@ class HiddenMarkovModel(Model):
             # print(states[:, t], states[:, t+1])
             t_counts[states[:, t], states[:, t+1]] += 1
 
-        self.logit_T = torch.log(t_counts + self.T_prior /
+        self.logit_T = torch.log((t_counts + self.T_prior) /
                                  (t_counts.sum(1) +
                                   self.T_prior.sum(1)).view(-1, 1))
 

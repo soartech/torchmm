@@ -75,10 +75,44 @@ def unpack_list(X):
     return seqs
 
 
+def pick_far_datapoint_by_states(states, X):
+    """
+    Given a list of states and datapoints, this returns the index of a
+    datapoint in X that is on average the least probability of belonging to all
+    the other centroids.
+    """
+    distances = []
+    for s in states:
+        dis = -1 * s.log_prob(X)
+        distances.append(dis)
+
+    dis = torch.stack(distances)
+    dis = dis.sum(dim=-1).squeeze()
+    if len(dis.shape) > 1:
+        min_dis = dis.min(dim=1)[0]
+    else:
+        min_dis = dis
+    return Categorical(probs=min_dis.softmax(0)).sample((1,))
+
+
+def pick_far_datapoint(centroids, X):
+    """
+    Given a list of centroids and AVAILABLE datapoints (X), this returns the
+    index of a datapoint in X that is on average furthest away from all the
+    centroids.
+    """
+    dis = pairwise_distance(centroids, X)
+    if len(dis.shape) > 1:
+        min_dis = dis.min(dim=1)[0]
+    else:
+        min_dis = dis
+    return Categorical(probs=min_dis.softmax(0)).sample((1,))
+
+
 def kmeans_init(X, k):
     """
-    Returns centroids for clusters using the kmeans++ algorithm. Accepts the
-    data and the number of desired clusters (k).
+    Returns centroids for clusters using the kmeans++ initialization algorithm.
+    Accepts the data and the number of desired clusters (k).
 
     See: https://en.wikipedia.org/wiki/K-means%2B%2B
     """
@@ -89,16 +123,44 @@ def kmeans_init(X, k):
     X_s = torch.cat([X[0:idx], X[idx+1:]])
 
     while centroids.shape[0] < k:
-        A = centroids.unsqueeze(dim=1)
-        B = X_s.unsqueeze(dim=0)
-        dis = (A-B).pow(2)
-        dis = dis.sum(dim=-1).squeeze()
-        if len(dis.shape) > 1:
-            min_dis = dis.min(dim=1)[0]
-        else:
-            min_dis = dis
-        idx = Categorical(probs=min_dis.softmax(0)).sample((1,))
+        idx = pick_far_datapoint(centroids, X_s)
         centroids = torch.cat((centroids, X_s[idx]))
         X_s = torch.cat([X_s[0:idx], X_s[idx+1:]])
 
     return centroids
+
+
+def pairwise_distance(data1, data2=None):
+    """
+    Compute pairwise distances between data1 and data2, if data2 is None, then
+    pairwise distance between data1 and itself is computed.
+    """
+    if data2 is None:
+        data2 = data1
+    A = data1.unsqueeze(dim=1)
+    B = data2.unsqueeze(dim=0)
+    dis = (A-B)**2.0
+    dis = dis.sum(dim=-1).squeeze()
+    return dis
+
+
+def kmeans(X, k, tol=1e-4):
+    initial_state = kmeans_init(X, k)
+
+    while True:
+        dis = pairwise_distance(X, initial_state)
+        choice_cluster = torch.argmin(dis, dim=1)
+        initial_state_pre = initial_state.clone()
+
+        for index in range(k):
+            selected = torch.nonzero(choice_cluster == index).squeeze()
+            selected = torch.index_select(X, 0, selected)
+            initial_state[index] = selected.mean(dim=0)
+
+        center_shift = torch.sum(torch.sqrt(
+            torch.sum((initial_state - initial_state_pre) ** 2, dim=1)))
+
+        if center_shift ** 2 < tol:
+            break
+
+    return initial_state

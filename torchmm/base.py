@@ -171,12 +171,12 @@ class DiagNormalModel(Model):
             self.means_prior = means_prior.float()
 
         if prec_alpha_prior is None:
-            self.prec_alpha_prior = torch.ones_like(self.precs)
+            self.prec_alpha_prior = 0.5 * torch.ones_like(self.precs)
         else:
             self.prec_alpha_prior = prec_alpha_prior.float()
 
         if prec_beta_prior is None:
-            self.prec_beta_prior = torch.ones_like(self.precs)
+            self.prec_beta_prior = 0.5 * torch.ones_like(self.precs)
         else:
             self.prec_beta_prior = prec_beta_prior.float()
 
@@ -274,10 +274,8 @@ class DiagNormalModel(Model):
 
         n = X.shape[0]
 
-        if n == 0:
-            self.means = self.means_prior
-            self.precs = self.prec_alpha_prior / self.prec_beta_prior
-        else:
+        # if n == 0, then do nothing.
+        if n > 0:
             means = X.mean(0)
             self.means = ((self.n0 * self.means_prior + n * means) /
                           (self.n0 + n))
