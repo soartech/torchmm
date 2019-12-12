@@ -29,7 +29,7 @@ class Model(object):
 
     def to(self, device):
         """
-        Moves the model's parameters / tensors to the specified device.
+        Moves the model's parameters / tensors to the specified pytorch device.
         """
         raise NotImplementedError("to method not implemented")
 
@@ -37,12 +37,14 @@ class Model(object):
         """
         Draws a sample from the model. This method might take additional
         arguments for specifying things like how many samples to draw.
+
+        The shape of the returned object may be dependent on the model.
         """
         raise NotImplementedError("sample method not implemented")
 
     def log_prob(self, X):
         """
-        Computes the log likelihood of the data X given the model.
+        Returns the log likelihood of the data X given the model.
         """
         raise NotImplementedError("log_likelihood method not implemented")
 
@@ -69,12 +71,20 @@ class Model(object):
 
 
 class CategoricalModel(Model):
+    """
+    A model used for representing categorical/discrete outputs from a state in
+    the HMM. Uses a categorical distribution and a Dirchlet prior.
+    """
 
     def __init__(self, probs=None, logits=None, prior=None):
         """
-        Accepts a set of probabilites OR logits for the model, NOT both.
+        Accepts a set of probabilites OR logits for the model, NOT both. This
+        also accepts a Dirichlet, or counts, prior. The prior is also a vector
+        with the same shape as probs/logits. If no prior is provided, then it
+        defaults to a vector of 1's (i.e., add-one laplace smoothing).
 
-        This also accepts a Dirichlet, or counts, prior.
+        Internally, the model uses logits (probs are converted into logits)
+        because they have better properties with respect to overflow/underflow.
         """
         if probs is not None and logits is not None:
             raise ValueError("Both probs and logits provided; only one should"
@@ -97,19 +107,29 @@ class CategoricalModel(Model):
         self.device = "cpu"
 
     def to(self, device):
+        """
+        Moves the model's parameters / tensors to the specified pytorch device.
+        """
         self.logits = self.logits.to(device)
         self.prior = self.prior.to(device)
         self.device = device
 
     def log_parameters_prob(self):
+        """
+        Returns the loglikelihood of the parameter estimates given the
+        Dirichlet prior.
+        """
         return Dirichlet(self.prior).log_prob(self.logits.softmax(0))
 
     def init_params_random(self):
+        """
+        Randomly samples the probs/logits using the Dirchlet prior.
+        """
         self.logits = Dirichlet(self.prior).sample().log()
 
     def sample(self, sample_shape=None):
         """
-        Draws n samples from this model.
+        Draws samples from this model and returns them in the specified shape.
         """
         if sample_shape is None:
             sample_shape = torch.tensor([1], device=self.device)
@@ -118,7 +138,10 @@ class CategoricalModel(Model):
     def log_prob(self, value):
         """
         Returns the loglikelihood of x given the current categorical
-        distribution.
+        distribution defined by the probs/logits.
+
+        Note that value can have an arbitrary shape and the returned value will
+        have the same shape.
         """
         return Categorical(logits=self.logits).log_prob(value)
 
@@ -130,13 +153,17 @@ class CategoricalModel(Model):
 
     def set_parameters(self, params):
         """
-        Returns the model parameters for optimization.
+        Sets the logits for the model to the first element of the provided
+        params.
         """
         self.logits = params[0]
 
     def fit(self, X):
         """
-        Update the logit vector based on the observed counts.
+        Update the logit vector based on the observed counts using maximum
+        likelihood estimation; i.e., it computes the probabilities that
+        maximize the data (the mean of the values), converts to and sets the
+        corresponding logits.
 
         .. todo::
             Maybe could be modified with weights to support baum welch?
@@ -147,13 +174,45 @@ class CategoricalModel(Model):
 
 
 class DiagNormalModel(Model):
+    """
+    A model used for representing multivariate continuous outputs from a state
+    in the HMM. Uses a normal distribution with a diagonal covariance matrix;
+    i.e., it assumes the features are independent of each other. In essence,
+    this assumes that states in the HMM are axis-aligned ellipses.
+
+    The model also uses a Normal-Gamma prior for the mean and covariance matrix
+    values.
+    """
 
     def __init__(self, means, precs, means_prior=None, prec_alpha_prior=None,
                  prec_beta_prior=None, n0=None):
         """
-        Accepts a set of mean and precisions for each dimension.
+        Accepts a set of mean and precisions for each dimension. Means and
+        precs must have the same length, corresponding to the number of
+        features in each observation.
 
-        Currently assumes all dimensions are independent.
+        The model can accepts a means prior, which imposes a normal prior over
+        the estimated means. This prior has the same length as the means/precs
+        (a separate prior can be specified for each feature). If no means
+        prior is specified, it uses a default prior of 0 (i.e., it pulls the
+        estimated means to be closer to zero).
+
+        The model can accept alpha and beta parameters (from a Gamma
+        Distribution) that impose a prior on the precision estimates. Both
+        alpha and beta must have the same length as the means/precs (a separate
+        prior can be specified for each feature). If none are provided, then
+        the model assumes the alphas and betas are 1, which yields a gamma
+        prior with a mean of 1 and std of 1 over the precision values.
+
+        The model also accepts an n0 value, which specifies how strongly to
+        weight the means priors. By default this value is 1, which roughly
+        corresponds to having observed 1 previous datapoint with feature values
+        equal to the means prior.
+
+        Finally, it is worth mentioning that the means, alpha, beta, and n0
+        values jointly define a normal-gamma prior, so they are not independent
+        of each other. For example, changing the means or n0 value might impact
+        how strongly the alpha and beta values affect the precision estimates.
         """
         if not isinstance(means, torch.Tensor):
             raise ValueError("Means must be a tensor.")
@@ -171,12 +230,12 @@ class DiagNormalModel(Model):
             self.means_prior = means_prior.float()
 
         if prec_alpha_prior is None:
-            self.prec_alpha_prior = 0.5 * torch.ones_like(self.precs)
+            self.prec_alpha_prior = torch.ones_like(self.precs)
         else:
             self.prec_alpha_prior = prec_alpha_prior.float()
 
         if prec_beta_prior is None:
-            self.prec_beta_prior = 0.5 * torch.ones_like(self.precs)
+            self.prec_beta_prior = torch.ones_like(self.precs)
         else:
             self.prec_beta_prior = prec_beta_prior.float()
 
@@ -188,6 +247,9 @@ class DiagNormalModel(Model):
         self.device = "cpu"
 
     def to(self, device):
+        """
+        Moves the model's parameters / tensors to the specified pytorch device.
+        """
         self.means = self.means.to(device)
         self.precs = self.precs.to(device)
 
@@ -200,7 +262,12 @@ class DiagNormalModel(Model):
 
     def init_params_random(self):
         """
-        Sample a random parameter configuration from the priors model.
+        Sample a random parameter configuration from the normal-gamma priors
+        model.
+
+        For more details on sampling from a normal-gamma distribution see:
+            - https://people.eecs.berkeley.edu/~jordan/courses/260-spring10/lectures/lecture5.pdf
+            - https://www.cs.ubc.ca/~murphyk/Papers/bayesGauss.pdf
         """
         prec_m = Gamma(self.prec_alpha_prior,
                        self.prec_beta_prior)
@@ -215,7 +282,7 @@ class DiagNormalModel(Model):
 
     def sample(self, sample_shape=None):
         """
-        Draws n samples from this model.
+        Draws n samples from this model and return them in the specified shape.
         """
         if sample_shape is None:
             sample_shape = torch.tensor([1], device=self.device)
@@ -224,6 +291,14 @@ class DiagNormalModel(Model):
             precision_matrix=self.precs.abs().diag()).sample(sample_shape)
 
     def log_parameters_prob(self):
+        """
+        Returns the log-likelihood of the parameter estimates given the
+        normal-gamma prior.
+
+        For more details computing log-likelihood under this prior see:
+            - https://people.eecs.berkeley.edu/~jordan/courses/260-spring10/lectures/lecture5.pdf
+            - https://www.cs.ubc.ca/~murphyk/Papers/bayesGauss.pdf
+        """
         ll = Gamma(self.prec_alpha_prior,
                    self.prec_beta_prior).log_prob(self.precs.abs()).sum()
         ll += MultivariateNormal(
@@ -234,7 +309,10 @@ class DiagNormalModel(Model):
 
     def log_prob(self, value):
         """
-        Returns the loglikelihood of x given the current parameters.
+        Returns the loglikelihood of the provided values given the current
+        parameters.
+
+        Note, this does not include the priors.
         """
         return MultivariateNormal(
             loc=self.means,
@@ -250,24 +328,29 @@ class DiagNormalModel(Model):
 
     def set_parameters(self, params):
         """
-        Sets the model parameters.
+        Sets the model parameters, the first parameter provided is the means
+        and the second is the precisions.
 
         .. todo::
             Currently not tested or used.
         """
-        print("SETTING", params)
         self.means = params[0]
         self.precs = params[1]
 
     def fit(self, X):
         """
-        Update the logit vector based on the observed counts.
+        Update the means and precisions based on the provided observations
+        using an Maximum a posteri (MAP) estimate; i.e., the maximum likelihood
+        estimate over both the data and the normal-gamma prior.
 
-        .. todo::
+        For more details on this calculations see:
             - Utilize the priors to do a MAP estimator. See:
                 https://people.eecs.berkeley.edu/~jordan/courses/260-spring10/lectures/lecture5.pdf
             - Some of the math seems easier to pull out what I need from pg 8
                 here: https://www.cs.ubc.ca/~murphyk/Papers/bayesGauss.pdf
+
+        Note, if X is empty (no observations), then no update is made and the
+        means and precisions remain the same.
         """
         if X.shape[1] != self.means.shape[0]:
             raise ValueError("Mismatch in number of features.")

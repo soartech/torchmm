@@ -13,6 +13,9 @@ import numpy as np
 
 
 def get_logger():
+    """
+    A method to generate a standard logger.
+    """
     logger = get_logger
     logger = logging.getLogger(__name__)
     logger.addHandler(logging.StreamHandler())
@@ -35,8 +38,11 @@ def timefun(f):
     """
     A decorator function for calling Timer with autorange on the provided
     function.
-    """
 
+    This decorator can be applied to any function to print certain timing
+    outputs. Note, it will potentially run the method multiple times on every
+    call.
+    """
     @wraps(f)
     def wrapper(*args, **kwds):
         try:
@@ -54,9 +60,10 @@ def timefun(f):
 
 def pack_list(X, enforce_sorted=False):
     """
-    Takes a list of lists of features.
+    Takes a list of lists of features or a list of numpy arrays of features.
 
-    Returns packed and padded sequences.
+    Returns packed and padded sequences that can be used in conjunction with
+    the hmm_packed model.
     """
     X = [torch.tensor(x) if not isinstance(x, torch.Tensor) else x for x in X]
     return pack_sequence(X, enforce_sorted=enforce_sorted)
@@ -65,7 +72,7 @@ def pack_list(X, enforce_sorted=False):
 def unpack_list(X):
     """
     Takes a packed sequence structure that corresponds to the last pack
-    call.  Untransforms it and then unsorts it, so it corresponds to the
+    call. Untransforms it and then unsorts it, so it corresponds to the
     original input.
     """
     X_unpacked, lengths = pad_packed_sequence(X, batch_first=True)
@@ -145,6 +152,14 @@ def pairwise_distance(data1, data2=None):
 
 
 def kmeans(X, k, tol=1e-4):
+    """
+    A simple pytorch implmementation of kmeans.
+
+    Given X, an N x F tensor where N is the number of data points and F is the
+    number of features. It groups these data into k clusters.
+
+    The output of this is a tensor of centroids with shape k x F.
+    """
     initial_state = kmeans_init(X, k)
 
     while True:

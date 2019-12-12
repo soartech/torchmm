@@ -9,14 +9,41 @@ from torchmm.base import CategoricalModel
 
 class HiddenMarkovModel(Model):
     """
-    Hidden Markov Model
+    A Hidden Markov Model, defined by states (defined by other models that
+    determine the likelihood of observation), initial start probabilities, and
+    transition probabilities.
+
+    Note, this model requires that all observation sequences are the same
+    length. If the sequences have different lengths, then look at the Hidden
+    Markov Model from the hmm_packed module.
+
+    .. todo::
+        Consider removing this model and only supporting packed sequences.
     """
 
-    def __init__(self, states, T0=None, T=None):
+    def __init__(self, states, T0=None, T=None, T0_prior=None, T_prior=None):
         """
-        states -> a list of emission models.
-        Pi -> a tensor of start probs
-        T -> a tensor of transition probs
+        Constructor for the HMM accepts.
+
+        This model requires a list of states, which define the emission models
+        (e.g., categorical model, diagnormal model).
+
+        Additionally, it is typical to specify start probabilities (T0) for
+        each state as well as transition probabilities (T) from state to state.
+        If these are missing, then the model assumes that the start and
+        transition probabilites are uniform and equal (e.g., for a 3 state
+        model, the start probabilities would be 0.33, 0.33, and 0.33).
+
+        The model also accepts Dirchlet priors over the start and transition
+        probabilites. Both priors have the same length as their respective
+        start and transition parameters (priors can be specified for each state
+        and state to state transtion). Dirchlet priors correspond intuitively
+        to having previously observed counts over the number of times each
+        start/transition was observed. If none are provided, then the are
+        assumed to be ones (i.e., add-one laplace smoothing).
+
+        Note, internally the model converts probabilities into
+        log-probabilities to prevent underflows.
         """
         for s in states:
             if not isinstance(s, Model):
@@ -53,10 +80,20 @@ class HiddenMarkovModel(Model):
         else:
             self.logit_T = torch.zeros([len(states), len(states)]).float()
 
-        self.T0_prior = torch.ones_like(self.logit_T0)
-        self.T_prior = torch.ones_like(self.logit_T)
+        if T0_prior is None:
+            self.T0_prior = torch.ones_like(self.logit_T0)
+        else:
+            self.T0_prior = T0_prior
+
+        if T_prior is None:
+            self.T_prior = torch.ones_like(self.logit_T)
+        else:
+            self.T_prior = T_prior
 
     def to(self, device):
+        """
+        Moves the model's parameters / tensors to the specified pytorch device.
+        """
         self.device = device
         self.logit_T0 = self.logit_T0.to(device)
         self.logit_T = self.logit_T.to(device)
@@ -103,20 +140,43 @@ class HiddenMarkovModel(Model):
                 yield p
 
     def update_log_params(self):
+        """
+        Applies a softmax to convert the current logits into valid log
+        probabilites.
+
+        .. todo::
+            explore why this is necessary.
+        """
         self.log_T0 = self.logit_T0.softmax(0).log()
         self.log_T = self.logit_T.softmax(1).log()
 
     @property
     def T0(self):
+        """
+        Returns the start probabilites (convert from logits to probs).
+        """
         return self.log_T0.softmax(0)
 
     @property
     def T(self):
+        """
+        Returns the transition probabilites (convert from logits to probs).
+        """
         return self.log_T.softmax(1)
 
     def sample(self, n_seq, n_obs):
         """
-        Draws n_seq samples from the HMM of length num_obs.
+        Draws n_seq samples from the HMM. All sequences will have length
+        num_obs.
+
+        :param n_seq: Number of sequences in generated sample
+        :type n_seq: int
+        :param n_obs: Number of observations per sequence in generated sample
+        :type n_obs: int
+        :returns: two tensors of shape n_seq x n_obs. The first contains
+            observations of length F, where F is the number of emissions
+            defined by the HMM's state models. The second contains state
+            labels.
         """
         self.update_log_params()
 
@@ -144,11 +204,25 @@ class HiddenMarkovModel(Model):
         Computes the log likelihood of the data X given the model.
 
         X should have format N x O, where N is number of sequences and O is
-        number of observations in that sequence.
+        number of observations in that sequence. Note, this requires all
+        sequences to have the same number of observations.
+
+        :param X: sequence/observation data
+        :type X: tensor with shape N x O x F, where N is number of sequences, O
+            is number of observations, and F is number of emission/features
+        :returns: tensor(1).
         """
         return self.filter(X).logsumexp(1).sum(0)
 
     def _emission_ll(self, X):
+        """
+        Compute the log-likelihood of each X from each state.
+
+        :param X: sequence/observation data
+        :type X: tensor with shape N x O x F, where N is number of sequences, O
+            is number of observations, and F is number of emission/features
+        :returns: tensor with shape N x O x F
+        """
         ll = torch.zeros([X.shape[0], X.shape[1], len(self.states)],
                          device=self.device).float()
         for i, s in enumerate(self.states):
@@ -157,13 +231,15 @@ class HiddenMarkovModel(Model):
 
     def filter(self, X):
         """
-        Compute the log posterior distribution over the most recent state in
-        each sequence-- given all the evidence to date for each.
+        Compute the log posterior distribution over the last state in
+        each sequence--given all the data in each sequence.
 
         Filtering might also be referred to as state estimation.
 
-        .. todo::
-            Update this doc comment.
+        :param X: sequence/observation data
+        :type X: tensor with shape N x O x F, where N is number of sequences, O
+            is number of observations, and F is number of emission/features
+        :returns: tensor with shape N x S, where S is the number of states
         """
         self.update_log_params()
         self.forward_ll = torch.zeros([X.shape[0], X.shape[1],
@@ -179,15 +255,20 @@ class HiddenMarkovModel(Model):
         each sequence in X. Predicts 1 step into the future for each sequence.
 
         .. todo::
-            Update this doc comment.
+            Update to accept a number of timesteps to project into the future.
 
-        .. todo::
-            Update to accept a number of timesteps to project.
+        :param X: sequence/observation data
+        :type X: tensor with shape N x O x F, where N is number of sequences, O
+            is number of observations, and F is number of emission/features
+        :returns: tensor with shape N x S, where S is the number of states
         """
         states = self.filter(X)
         return self._belief_prop_sum(states)
 
     def _forward(self):
+        """
+        The forward algorithm.
+        """
         self.forward_ll[:, 0, :] = self.log_T0 + self.obs_ll_full[:, 0]
         for t in range(1, self.forward_ll.shape[1]):
             self.forward_ll[:, t, :] = (
@@ -196,7 +277,7 @@ class HiddenMarkovModel(Model):
 
     def _backward(self):
         """
-        Computes the backward values.
+        The backward algorithm.
         """
         N = self.obs_ll_full.shape[0]
         T = self.obs_ll_full.shape[1]
@@ -211,7 +292,21 @@ class HiddenMarkovModel(Model):
         """
         Learn new model parameters from X using the specified alg.
 
-        Alg can be either 'baum_welch' or 'viterbi'.
+        Alg can be either 'viterbi' or 'autograd'. Note, viterbi uses hard
+        expectation-maximization to fit the model and has been reasonably
+        extensively tested. Autograd uses pytorch to fit the full model
+        (akin to what baum-welch would produce).  However it is not extensively
+        tested and seems to give poor results, if there are not enough steps.
+        Autograd also takes a lot longer to perform a sufficient number of
+        updates.
+
+        .. todo::
+            Implement closed form baum welch.
+
+        :param X: sequence/observation data
+        :type X: tensor with shape N x O x F, where N is number of sequences, O
+            is number of observations, and F is number of emission/features
+        :returns: None
         """
         if randomize_first:
             self.init_params_random()
@@ -227,10 +322,18 @@ class HiddenMarkovModel(Model):
 
     def decode(self, X):
         """
-        Find the most likely state sequences corresponding to X.
+        Find the most likely state sequences corresponding to each observation
+        in X. Note the state assignments within a sequence are not independent
+        and this gives the best joint set of state assignments for each
+        sequence.
 
-        .. todo::
-            Modify this doc comment based on how we decide to pack/pad X.
+        This essentially finds the state assignments for each observation.
+
+        :param X: sequence/observation data
+        :type X: tensor with shape N x O x F, where N is number of sequences, O
+            is number of observations, and F is number of emission/features
+        :returns: two tensors, first is N x O and contains the state labels,
+            the second is N x O and contains the previous state label
         """
         self.update_log_params()
         self._init_viterbi(X)
@@ -240,10 +343,16 @@ class HiddenMarkovModel(Model):
     def smooth(self, X):
         """
         Compute the smoothed posterior probability over each state for the
-        sequences in X.
+        sequences in X. Unlike decode, this computes the best state assignment
+        for each observation independent of the other assignments.
 
-        .. todo::
-            Update this doc comment and update to reflect packed and padded seq
+        Note, using this to compute the state state labels for the observations
+        in a sequence is incorrect! Use decode instead.
+
+        :param X: sequence/observation data
+        :type X: tensor with shape N x O x F, where N is number of sequences, O
+            is number of observations, and F is number of emission/features
+        :returns: N x O x S
         """
         self.update_log_params()
         self._init_forw_back(X)
@@ -320,6 +429,9 @@ class HiddenMarkovModel(Model):
         return self.states_seq, self.path_scores
 
     def _init_forw_back(self, X):
+        """
+        Forward backward algorithm.
+        """
         shape = [X.shape[0], X.shape[1], len(self.states)]
         self.forward_ll = torch.zeros(shape, device=self.device).float()
         self.backward_ll = torch.zeros_like(self.forward_ll)
@@ -365,7 +477,17 @@ class HiddenMarkovModel(Model):
                                       device=self.device).long()
 
     def _viterbi_training_step(self, X):
+        """
+        The inner viterbi training loop.
 
+        Perform one step of viterbi training. Note this is different from
+        viterbi inference.
+
+        Viterbi training performes one expectation maximization. It computes
+        the most likely states (using viterbi inference), then based on these
+        hard state assignments it updates all the parameters using maximum
+        likelihood or maximum a posteri if the respective models have priors.
+        """
         self.update_log_params()
 
         # for convergence testing
@@ -398,11 +520,19 @@ class HiddenMarkovModel(Model):
         self._update_emissions_viterbi_training(states, X)
 
     def _update_emissions_viterbi_training(self, states, obs_seq):
+        """
+        Given the states assignments and the observations, update the state
+        emission models to better represent the assigned observations.
+        """
         for i, s in enumerate(self.states):
             s.fit(obs_seq[states == i])
 
     def _viterbi_training(self, X, max_steps=500, epsilon=1e-2):
-
+        """
+        The outer viterbi training loop. This iteratively executes viterbi
+        training steps until the model has converged or the maximum number of
+        iterations has been reached.
+        """
         # initialize variables
         self._init_viterbi(X)
 
@@ -423,7 +553,12 @@ class HiddenMarkovModel(Model):
         return self.converged
 
     def _autograd(self, X, max_steps=500, epsilon=1e-2, **kwargs):
+        """
+        This is an alternative to viterbi that uses pytorch's optimization
+        capabilities to fit the hmm model.
 
+        Currently this approach does not work very well.
+        """
         self.ll_history = []
         self.epsilon = epsilon
 
@@ -477,6 +612,9 @@ class HiddenMarkovModel(Model):
 
     @property
     def converged(self):
+        """
+        Specifies the convergence test for training.
+        """
         return (len(self.ll_history) >= 2 and
                 (self.ll_history[-2] - self.ll_history[-1]).abs() <
                 self.epsilon)

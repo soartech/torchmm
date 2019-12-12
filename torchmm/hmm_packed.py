@@ -9,12 +9,26 @@ from torch.nn.utils.rnn import pack_padded_sequence
 
 class HiddenMarkovModel(HiddenMarkovModel):
     """
-    Hidden Markov Model
+    A Hidden Markov Model, defined by states (defined by other models that
+    determine the likelihood of observation), initial start probabilities, and
+    transition probabilities.
+
+    Note, this model requires packed sequence data. If all the sequences have
+    the same length and you don't want to have to deal with packing, then you
+    can use the Hidden Markov Model from the hmm module instead.
     """
 
     def sample(self, n_seq, n_obs):
         """
-        Draws n_seq samples from the HMM of length num_obs.
+        Draws n_seq samples from the HMM. All sequences will have length
+        num_obs. The returned samples are packed.
+
+        :param n_seq: Number of sequences in generated sample
+        :type n_seq: int
+        :param n_obs: Number of observations per sequence in generated sample
+        :type n_obs: int
+        :returns: Two packed sequence tensors. The first contains the
+            observations and the second contains state labels.
         """
         self.update_log_params()
 
@@ -45,6 +59,12 @@ class HiddenMarkovModel(HiddenMarkovModel):
         return packed_obs, packed_states
 
     def _emission_ll(self, X):
+        """
+        Computes the log-probability of every observation given the states.
+
+        This is different than unpacked equivelent because there is one less
+        dimension.
+        """
         ll = torch.zeros([X.data.shape[0], len(self.states)],
                          device=self.device).float()
         for i, s in enumerate(self.states):
@@ -53,14 +73,19 @@ class HiddenMarkovModel(HiddenMarkovModel):
 
     def filter(self, X):
         """
-        Compute the log posterior distribution over the most recent state in
-        each sequence-- given all the evidence to date for each.
+        Compute the log posterior distribution over the last state in
+        each sequence--given all the data in each sequence.
 
         Filtering might also be referred to as state estimation.
 
         .. todo::
             Remove the need to unpack the forward_ll var. Just read the packed
             representation directly.
+
+        :param X: packed sequence/observation data
+        :type X: packed sequence
+        :returns: tensor with shape N x S, where N is number of sequences and S
+            is the number of states.
         """
         self.update_log_params()
 
@@ -81,6 +106,9 @@ class HiddenMarkovModel(HiddenMarkovModel):
         return f_ll_unpacked[torch.arange(f_ll_unpacked.size(0)), lengths-1]
 
     def _forward(self):
+        """
+        The forward algorithm applied to packed sequences.
+        """
         self.forward_ll[0:self.batch_sizes[0]] = (
             self.log_T0 + self.obs_ll_full[0:self.batch_sizes[0]])
 
@@ -97,7 +125,7 @@ class HiddenMarkovModel(HiddenMarkovModel):
 
     def _backward(self):
         """
-        Computes the backward values.
+        The backward algorithm applied to packed sequences.
         """
         T = len(self.batch_sizes)
         start = torch.zeros_like(self.batch_sizes)
@@ -123,10 +151,17 @@ class HiddenMarkovModel(HiddenMarkovModel):
 
     def decode(self, X):
         """
-        Find the most likely state sequences corresponding to X.
+        Find the most likely state sequences corresponding to each observation
+        in X. Note the state assignments within a sequence are not independent
+        and this gives the best joint set of state assignments for each
+        sequence.
 
-        .. todo::
-            Modify this doc comment based on how we decide to pack/pad X.
+        This essentially finds the state assignments for each observation.
+
+        :param X: packed sequence/observation data
+        :type X: packed sequence
+        :returns: two packed sequence tensors. The first contains state labels,
+            the second contains the previous state label (i.e., the path).
         """
         self.update_log_params()
         self._init_viterbi(X)
@@ -146,10 +181,15 @@ class HiddenMarkovModel(HiddenMarkovModel):
     def smooth(self, X):
         """
         Compute the smoothed posterior probability over each state for the
-        sequences in X.
+        sequences in X. Unlike decode, this computes the best state assignment
+        for each observation independent of the other assignments.
 
-        .. todo::
-            Update this doc comment and update to reflect packed and padded seq
+        Note, using this to compute the state state labels for the observations
+        in a sequence is incorrect! Use decode instead.
+
+        :param X: packed sequence/observation data
+        :type X: packed sequence
+        :returns: a packed sequence tensors.
         """
         self.update_log_params()
         self._init_forw_back(X)
@@ -218,6 +258,9 @@ class HiddenMarkovModel(HiddenMarkovModel):
         return self.states_seq, self.path_scores
 
     def _init_forw_back(self, X):
+        """
+        Initialization for the forward backward algorithm.
+        """
         N = len(X.data)
         shape = [N, len(self.states)]
         self.batch_sizes = X.batch_sizes
@@ -267,6 +310,17 @@ class HiddenMarkovModel(HiddenMarkovModel):
                                       device=self.device).long()
 
     def _viterbi_training_step(self, X):
+        """
+        The inner viterbi training loop.
+
+        Perform one step of viterbi training. Note this is different from
+        viterbi inference.
+
+        Viterbi training performes one expectation maximization. It computes
+        the most likely states (using viterbi inference), then based on these
+        hard state assignments it updates all the parameters using maximum
+        likelihood or maximum a posteri if the respective models have priors.
+        """
         self.update_log_params()
         self.ll_history.append(self.log_prob(X))
         states, _ = self.decode(X)
@@ -299,11 +353,19 @@ class HiddenMarkovModel(HiddenMarkovModel):
         self._update_emissions_viterbi_training(states.data, X.data)
 
     def _update_emissions_viterbi_training(self, states, obs_seq):
+        """
+        Given the states assignments and the observations, update the state
+        emission models to better represent the assigned observations.
+        """
         for i, s in enumerate(self.states):
             s.fit(obs_seq[states == i])
 
     def _viterbi_training(self, X, max_steps=500, epsilon=1e-2):
-
+        """
+        The outer viterbi training loop. This iteratively executes viterbi
+        training steps until the model has converged or the maximum number of
+        iterations has been reached.
+        """
         # initialize variables
         self._init_viterbi(X)
 
