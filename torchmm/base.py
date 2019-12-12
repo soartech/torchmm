@@ -266,7 +266,7 @@ class DiagNormalModel(Model):
         model.
 
         For more details on sampling from a normal-gamma distribution see:
-            - https://people.eecs.berkeley.edu/~jordan/courses/260-spring10/lectures/lecture5.pdf
+            - https://people.eecs.berkeley.edu/~jordan/courses/260-spring10/lectures/lecture5.pdf # noqa: E501
             - https://www.cs.ubc.ca/~murphyk/Papers/bayesGauss.pdf
         """
         prec_m = Gamma(self.prec_alpha_prior,
@@ -296,7 +296,7 @@ class DiagNormalModel(Model):
         normal-gamma prior.
 
         For more details computing log-likelihood under this prior see:
-            - https://people.eecs.berkeley.edu/~jordan/courses/260-spring10/lectures/lecture5.pdf
+            - https://people.eecs.berkeley.edu/~jordan/courses/260-spring10/lectures/lecture5.pdf # noqa: E501
             - https://www.cs.ubc.ca/~murphyk/Papers/bayesGauss.pdf
         """
         ll = Gamma(self.prec_alpha_prior,
