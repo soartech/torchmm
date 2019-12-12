@@ -94,7 +94,7 @@ pages:
     - mv coverage public/coverage
   environment:
     name: pages
-    url: https://git.hq-git.soartech.com/TorCHmM/
+    url: https://chris.maclellan.hq-git.soartech.com/TorCHmM
   artifacts:
     paths:
       - public
