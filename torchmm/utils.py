@@ -123,6 +123,7 @@ def kmeans_init(X, k):
 
     See: https://en.wikipedia.org/wiki/K-means%2B%2B
     """
+    X = X.unique(dim=0)
     n = X.shape[0]
 
     idx = torch.randint(high=n, size=(1,))
