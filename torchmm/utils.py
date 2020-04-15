@@ -152,7 +152,7 @@ def pairwise_distance(data1, data2=None):
     return dis
 
 
-def kmeans(X, k, tol=1e-4, max_steps=10000):
+def kmeans(X, k, tol=1e-4, max_iter=100):
     """
     A simple pytorch implmementation of kmeans.
 
@@ -162,13 +162,12 @@ def kmeans(X, k, tol=1e-4, max_steps=10000):
     The output of this is a tensor of centroids with shape k x F.
     """
     initial_state = kmeans_init(X, k)
-    dis = pairwise_distance(X, initial_state)
-    choice_cluster = torch.argmin(dis, dim=1)
-    last_cost = float(inf)
 
-    for _ in range(max_steps):
+    for _ in range(max_iter):
+        dis = pairwise_distance(X, initial_state)
+        choice_cluster = torch.argmin(dis, dim=1)
         initial_state_pre = initial_state.clone()
-        
+
         for index in range(k):
             selected = torch.nonzero(choice_cluster == index).squeeze()
             selected = torch.index_select(X, 0, selected)
@@ -177,13 +176,8 @@ def kmeans(X, k, tol=1e-4, max_steps=10000):
         center_shift = torch.sum(torch.sqrt(
             torch.sum((initial_state - initial_state_pre) ** 2, dim=1)))
 
-        dis = pairwise_distance(X, initial_state)
-        choice_cluster = torch.argmin(dis, dim=1)
-        cost = dis[coice_cluster].pow(2).sum()
-
-        if center_shift ** 2 < tol or last_cost - cost <= 0:
+        if center_shift ** 2 < tol:
             break
-        
-        last_cost = cost
 
     return initial_state
+
