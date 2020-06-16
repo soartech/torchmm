@@ -1,5 +1,6 @@
 import pytest
 import torch
+
 from torchmm.base import CategoricalModel
 from torchmm.base import DiagNormalModel
 from torchmm.hmm import HiddenMarkovModel
@@ -317,7 +318,7 @@ def test_hmm_fit_viterbi_categorical():
     s2 = CategoricalModel(probs=s2_orig)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
 
-    converge = model.fit(obs_seq, max_steps=500, epsilon=1e-2)
+    converge = model.fit(obs_seq, max_steps=500, epsilon=1e-2, restarts=3)
 
     # Not enough samples (only 1) to test
     # assert np.allclose(trans0.data.numpy(), True_pi)
@@ -381,7 +382,7 @@ def test_hmm_fit_viterbi_diagnormal():
     s2 = DiagNormalModel(means=s2_means, precs=s2_precs)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
 
-    converge = model.fit(obs_seq, max_steps=500, epsilon=1e-2)
+    converge = model.fit(obs_seq, max_steps=500, epsilon=1e-2, restarts=3)
 
     # Not enough samples (only 1) to test
     # assert np.allclose(trans0.data.numpy(), True_pi)

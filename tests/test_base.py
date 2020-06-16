@@ -72,12 +72,15 @@ def test_diagnormalmodel_parmeters():
 
 
 def test_diagnomralmodel_fit_no_data():
-    m = DiagNormalModel(means=torch.tensor([0.]),
-                        precs=torch.tensor([1.]))
+    m = DiagNormalModel(means=torch.tensor([5.]),
+                        precs=torch.tensor([5.]))
     X = torch.empty((0, 1))
     m.fit(X)
     assert not torch.isnan(m.means).any()
     assert not torch.isnan(m.precs).any()
+
+    assert torch.isclose(m.means, torch.tensor([0.])).all()
+    assert torch.isclose(m.precs, torch.tensor([1.])).all()
 
 
 def test_diagnormalmodel_fit_2d():

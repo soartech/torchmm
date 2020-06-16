@@ -13,27 +13,17 @@ class HiddenMarkovModel(HiddenMarkovModel):
     determine the likelihood of observation), initial start probabilities, and
     transition probabilities.
 
-    Note, this model requires that all observation sequences are the same
-    length. If the sequences have different lengths, then look at the Hidden
-    Markov Model from the hmm_packed module.
-
-    .. todo::
-        Consider removing this model and only supporting packed sequences.
+    This package wraps the hmm_packed HiddenMarkovModel to provide some
+    automattion for packing and unpacking sequences. The general pattern for
+    this class is that data is returned in the format it was provided. If
+    packed data is provided, then packed results are returned. However, if
+    lists of tensors are provided, then lists of tensors are returned.
     """
 
     def sample(self, n_seq, n_obs, packed=False):
         """
         Draws n_seq samples from the HMM. All sequences will have length
-        num_obs.
-
-        :param n_seq: Number of sequences in generated sample
-        :type n_seq: int
-        :param n_obs: Number of observations per sequence in generated sample
-        :type n_obs: int
-        :returns: two tensors of shape n_seq x n_obs. The first contains
-            observations of length F, where F is the number of emissions
-            defined by the HMM's state models. The second contains state
-            labels.
+        num_obs. If packed is True, then the model returns a packed list.
         """
         packed_obs, packed_states = super().sample(n_seq, n_obs)
         if packed:
@@ -49,11 +39,6 @@ class HiddenMarkovModel(HiddenMarkovModel):
         each sequence--given all the data in each sequence.
 
         Filtering might also be referred to as state estimation.
-
-        :param X: sequence/observation data
-        :type X: tensor with shape N x O x F, where N is number of sequences, O
-            is number of observations, and F is number of emission/features
-        :returns: tensor with shape N x S, where S is the number of states
         """
         if isinstance(X, PackedSequence):
             return super().filter(X)
@@ -71,15 +56,7 @@ class HiddenMarkovModel(HiddenMarkovModel):
         Find the most likely state sequences corresponding to each observation
         in X. Note the state assignments within a sequence are not independent
         and this gives the best joint set of state assignments for each
-        sequence.
-
-        This essentially finds the state assignments for each observation.
-
-        :param X: sequence/observation data
-        :type X: tensor with shape N x O x F, where N is number of sequences, O
-            is number of observations, and F is number of emission/features
-        :returns: two tensors, first is N x O and contains the state labels,
-            the second is N x O and contains the previous state label
+        sequence; i.e., this finds the state assignments for each observation.
         """
         if isinstance(X, PackedSequence):
             return super().decode(X)
@@ -101,11 +78,6 @@ class HiddenMarkovModel(HiddenMarkovModel):
 
         Note, using this to compute the state state labels for the observations
         in a sequence is incorrect! Use decode instead.
-
-        :param X: sequence/observation data
-        :type X: tensor with shape N x O x F, where N is number of sequences, O
-            is number of observations, and F is number of emission/features
-        :returns: N x O x S
         """
         if isinstance(X, PackedSequence):
             return super().smooth(X)
@@ -120,12 +92,7 @@ class HiddenMarkovModel(HiddenMarkovModel):
 
     def fit(self, X, **kwargs):
         """
-        Learn new model parameters from X using the specified alg.
-
-        :param X: sequence/observation data
-        :type X: tensor with shape N x O x F, where N is number of sequences, O
-            is number of observations, and F is number of emission/features
-        :returns: None
+        Learn new model parameters from X.
         """
         if isinstance(X, PackedSequence):
             return super().fit(X, **kwargs)
@@ -151,10 +118,10 @@ if __name__ == "__main__":
                               T0_prior=torch.tensor([0., 0.]),
                               T_prior=torch.tensor([[0., 0.], [0., 0.]]))
     obs_seq, states = model.sample(10, 10)
-    # print(obs_seq[:, 0].sum())
 
     print("First 5 Obersvations of seq 0:  ", obs_seq[0][:5])
     print("First 5 Hidden States of seq 0: ", states[0][:5])
+    print()
 
     T0 = torch.tensor([0.49, 0.51])
     T = torch.tensor([[0.6, 0.4],
@@ -171,18 +138,20 @@ if __name__ == "__main__":
     # assert np.allclose(trans0.data.numpy(), True_pi)
     print("Pi Matrix: ")
     print(model.T0)
+    print()
 
     print("Transition Matrix: ")
     print(model.T)
-    # assert np.allclose(transition.exp().data.numpy(), True_T, atol=0.1)
     print()
+
     print("Emission Matrix: ")
     for s in model.states:
         print([p for p in s.parameters()])
-    # assert np.allclose(emission.exp().data.numpy(), True_E, atol=0.1)
     print()
+
     print("Reached Convergence: ")
     print(converge)
+    print()
 
     states_seq, _ = model.decode(obs_seq)
 

@@ -14,9 +14,17 @@ from torchmm.utils import kmeans
 
 
 def kpp_rand(hmm, X):
+    """
+    Helper function for use in HiddenMarkovModel.fit(...). This method accepts
+    an hmm and packed data. It randomly initializes the parameters using the
+    init_params_random(), then it sets the sentroids using the k++ algorithm.
+
+    Note, this function only works if the states are DiagNormalModels.
+    """
     hmm.init_params_random()
     n_states = len(hmm.states)
     X = torch.stack(unpack_list(X))
+    print(X.shape)
     centroids = kmeans_init(X.squeeze(), n_states)
 
     for s_idx, s in enumerate(hmm.states):
@@ -24,6 +32,13 @@ def kpp_rand(hmm, X):
 
 
 def kmeans_rand(hmm, X):
+    """
+    Helper function for use in HiddenMarkovModel.fit(...). This method accepts
+    an hmm and packed data. It randomly initializes the parameters using the
+    init_params_random(), then it sets the sentroids using the kmean algorithm.
+
+    Note, this function only works if the states are DiagNormalModels.
+    """
     hmm.init_params_random()
     n_states = len(hmm.states)
     X = torch.stack(unpack_list(X))
@@ -35,16 +50,18 @@ def kmeans_rand(hmm, X):
 
 class HiddenMarkovModel(Model):
     """
-    A Hidden Markov Model, defined by states (defined by other models that
+    A Hidden Markov Model, defined by states (each defined by other models that
     determine the likelihood of observation), initial start probabilities, and
     transition probabilities.
 
     Note, this model requires packed sequence data. If all the sequences have
     the same length and you don't want to have to deal with packing, then you
-    can use the Hidden Markov Model from the hmm module instead.
+    can use the Hidden Markov Model from the hmm module instead, which wraps
+    this class and does some automatic data packing and unpacking.
     """
 
-    def __init__(self, states, T0=None, T=None, T0_prior=None, T_prior=None):
+    def __init__(self, states, T0=None, T=None, T0_prior=None, T_prior=None,
+                 device="cpu"):
         """
         Constructor for the HMM accepts.
 
@@ -91,7 +108,6 @@ class HiddenMarkovModel(Model):
             raise ValueError("T0 has incorrect number of states")
 
         self.states = states
-        self.device = "cpu"
 
         if T0 is not None:
             self.log_T0 = T0.log()
@@ -105,13 +121,19 @@ class HiddenMarkovModel(Model):
 
         if T0_prior is None:
             self.T0_prior = torch.ones_like(self.log_T0)
+        elif isinstance(T0_prior, (float, int)):
+            self.T0_prior = T0_prior * torch.ones_like(self.log_T0).float()
         else:
             self.T0_prior = T0_prior
 
         if T_prior is None:
             self.T_prior = torch.ones_like(self.log_T)
+        elif isinstance(T_prior, (float, int)):
+            self.T_prior = T_prior * torch.ones_like(self.log_T).float()
         else:
             self.T_prior = T_prior
+
+        self.to(device)
 
     def to(self, device):
         """
@@ -156,10 +178,10 @@ class HiddenMarkovModel(Model):
             For example, if states share the same emission parameters somehow,
             then we only want them returned once.
         """
-        yield self.log_T0.clone().detach()
-        yield self.log_T.clone().detach()
+        ret = [self.log_T0.clone().detach(), self.log_T.clone().detach()]
         for s in self.states:
-            yield list(s.parameters())
+            ret.append(s.parameters())
+        return ret
 
     def set_parameters(self, params):
         self.log_T0 = params[0]
@@ -185,14 +207,11 @@ class HiddenMarkovModel(Model):
         """
         Computes the log likelihood of the data X given the model.
 
-        X should have format N x O, where N is number of sequences and O is
-        number of observations in that sequence. Note, this requires all
-        sequences to have the same number of observations.
+        X should be a packed list, which was created by calling packed_list(..)
+        on a list of tensors, each representing a sequence.
 
-        :param X: sequence/observation data
-        :type X: tensor with shape N x O x F, where N is number of sequences, O
-            is number of observations, and F is number of emission/features
-        :returns: tensor(1).
+        Returns the logprob of the data, not including the prior in the
+        calculation.
         """
         return self.filter(X).logsumexp(1).sum(0)
 
@@ -200,13 +219,6 @@ class HiddenMarkovModel(Model):
         """
         Draws n_seq samples from the HMM. All sequences will have length
         num_obs. The returned samples are packed.
-
-        :param n_seq: Number of sequences in generated sample
-        :type n_seq: int
-        :param n_obs: Number of observations per sequence in generated sample
-        :type n_obs: int
-        :returns: Two packed sequence tensors. The first contains the
-            observations and the second contains state labels.
         """
         test_sample = self.states[0].sample()
         shape = [n_seq, n_obs] + list(test_sample.shape)[1:]
@@ -238,12 +250,8 @@ class HiddenMarkovModel(Model):
     def _emission_ll(self, X):
         """
         Computes the log-probability of every observation given the states.
-
-        This is different than unpacked equivelent because there is one less
-        dimension.
+        The returned ll has the same shape as the packed data.
         """
-
-        # TODO set emission prob to 1 (log_prob of 0) for missing.
         ll = torch.zeros([X.data.shape[0], len(self.states)],
                          device=self.device).float()
         for i, s in enumerate(self.states):
@@ -300,7 +308,9 @@ class HiddenMarkovModel(Model):
 
     def _forward(self):
         """
-        The forward algorithm applied to packed sequences.
+        The HMM forward algorithm applied to packed sequences. We cannot
+        vectorize operations across time because of the temporal dependence, so
+        we iterate through time across all the packed data.
         """
         self.forward_ll[0:self.batch_sizes[0]] = (
             self.log_T0 + self.obs_ll_full[0:self.batch_sizes[0]])
@@ -318,7 +328,9 @@ class HiddenMarkovModel(Model):
 
     def _backward(self):
         """
-        The backward algorithm applied to packed sequences.
+        The HMM backward algorithm applied to packed sequences. We cannot
+        vectorize operations across time because of the temporal dependence, so
+        we iterate through time across all the packed data.
         """
         T = len(self.batch_sizes)
         start = torch.zeros_like(self.batch_sizes)
@@ -349,7 +361,7 @@ class HiddenMarkovModel(Model):
         and this gives the best joint set of state assignments for each
         sequence.
 
-        This essentially finds the state assignments for each observation.
+        In essence, this finds the state assignments for each observation.
 
         :param X: packed sequence/observation data
         :type X: packed sequence
@@ -376,8 +388,8 @@ class HiddenMarkovModel(Model):
         sequences in X. Unlike decode, this computes the best state assignment
         for each observation independent of the other assignments.
 
-        Note, using this to compute the state state labels for the observations
-        in a sequence is incorrect! Use decode instead.
+        Note, that in general, using this to compute the state labels for
+        the observations in a sequence is incorrect! Use decode instead!
 
         :param X: packed sequence/observation data
         :type X: packed sequence
@@ -401,12 +413,10 @@ class HiddenMarkovModel(Model):
         Scores should have shape N x S, where N is the num seq and S is the
         num states.
         """
-        mv, mi = torch.max(scores.unsqueeze(2).expand(-1, -1,
-                                                      self.log_T.shape[0]) +
-                           self.log_T.unsqueeze(0).expand(scores.shape[0], -1,
-                                                          -1), 1)
+        mv, mi = torch.max(
+            scores.unsqueeze(2).expand(-1, -1, self.log_T.shape[0]) +
+            self.log_T.unsqueeze(0).expand(scores.shape[0], -1, -1), 1)
         return mv.squeeze(1), mi.squeeze(1)
-        # return torch.max(scores.view(-1, 1) + self.log_T, 0)
 
     def _belief_prop_sum(self, scores):
         """
@@ -416,22 +426,37 @@ class HiddenMarkovModel(Model):
         Scores should have shape N x S, where N is the num seq and S is the
         num states.
         """
-        s = torch.logsumexp(scores.unsqueeze(2).expand(-1, -1,
-                                                       self.log_T.shape[0]) +
-                            self.log_T.unsqueeze(0).expand(scores.shape[0], -1,
-                                                           -1), 1)
+        s = torch.logsumexp(
+            scores.unsqueeze(2).expand(-1, -1, self.log_T.shape[0]) +
+            self.log_T.unsqueeze(0).expand(scores.shape[0], -1, -1), 1)
         return s.squeeze(1)
-        # return torch.logsumexp(scores.view(-1, 1) + self.log_T, 0)
 
     def fit(self, X, max_steps=500, epsilon=1e-3, randomize_first=False,
             restarts=10, rand_fun=None, **kwargs):
         """
-        Learn new model parameters from X using the specified alg.
+        Learn new model parameters from X using hard expectation maximization
+        (viterbi training).
 
-        :param X: sequence/observation data
-        :type X: tensor with shape N x O x F, where N is number of sequences, O
-            is number of observations, and F is number of emission/features
-        :returns: None
+        This has a number of model fitting parameters. max_steps determines the
+        maximum number of expectation-maximization steps per fitting iteration.
+        epsilon determines the convergence threshold for the
+        expectation-maximization (model converges when successive iterations do
+        not improve greater than this threshold).
+
+        The expectation-maximization can often get stuck in local maximums, so
+        this method supports random restarts (reinitialize and rerun the EM).
+        The restarts parameters specifies how many random restarts to perform.
+        On each restart the model parameters are randomized using the provided
+        rand_fun(hmm, data) function. If no rand_fun is provided, then the
+        parameters are sampled using the init_params_random(). If
+        randomize_first is True, then the model randomizes the parameters on
+        the first iteration, otherwise it uses the current parameter values as
+        the first EM start point (the default). When doing random restarts, the
+        model will finish with parameters that had the best log-likihood across
+        all the restarts.
+
+        The model returns a flag specifying if the best fitting model (across
+        the restarts) converged.
         """
         best_params = None
         best_ll = float('-inf')
@@ -513,7 +538,7 @@ class HiddenMarkovModel(Model):
 
     def _init_forw_back(self, X):
         """
-        Initialization for the forward backward algorithm.
+        Initialization for the forward-backward algorithm.
         """
         N = len(X.data)
         shape = [N, len(self.states)]
@@ -552,7 +577,6 @@ class HiddenMarkovModel(Model):
         Kept seperate so initialization can be called only once when repeated
         inference calls are needed.
         """
-        # X = torch.tensor(X)
         shape = [X.data.shape[0], len(self.states)]
 
         self.batch_sizes = X.batch_sizes
@@ -581,7 +605,6 @@ class HiddenMarkovModel(Model):
         # start prob
         s_counts = states.data[0:states.batch_sizes[0]].bincount(
             minlength=len(self.states)).float()
-        # s_counts = states[:self.batch_sizes[0]].bincount(minlength=self.S)
         self.log_T0 = torch.log((s_counts + self.T0_prior) /
                                 (s_counts.sum() + self.T0_prior.sum()))
 
@@ -589,15 +612,12 @@ class HiddenMarkovModel(Model):
         t_counts = torch.zeros_like(self.log_T).float()
 
         M = self.log_T.shape[0]
-
         idx = 0
         for step, prev_size in enumerate(self.batch_sizes[:-1]):
             next_size = self.batch_sizes[step+1]
             start = idx
             mid = start + prev_size
             end = mid + next_size
-            # t_counts[states.data[start:start+next_size],
-            #          states.data[mid:end]] += 1
             pairs = (states.data[start:start+next_size] * M +
                      states.data[mid:end]).bincount(minlength=M*M).float()
             t_counts += pairs.reshape((M, M))
@@ -666,13 +686,14 @@ if __name__ == "__main__":
     s1 = CategoricalModel(probs=s1_orig)
     s2 = CategoricalModel(probs=s2_orig)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
-    obs_seq, states = model.sample(3000, 30)
+    obs_seq, states = model.sample(30, 30)
 
     obs_seq_unpacked = unpack_list(obs_seq)
     states_unpacked = unpack_list(states)
 
     print("First 5 Obersvations of seq 0:  ", obs_seq_unpacked[0][:5])
     print("First 5 Hidden States of seq 0: ", states_unpacked[0][:5])
+    print()
 
     T0 = torch.tensor([0.5, 0.5])
     T = torch.tensor([[0.6, 0.4],
@@ -689,30 +710,25 @@ if __name__ == "__main__":
     # assert np.allclose(trans0.data.numpy(), True_pi)
     print("Pi Matrix: ")
     print(model.T0)
+    print()
 
     print("Transition Matrix: ")
     print(model.T)
-    # assert np.allclose(transition.exp().data.numpy(), True_T, atol=0.1)
     print()
+
     print("Emission Matrix: ")
     for s in model.states:
         print([p for p in s.parameters()])
-        # print([p.softmax(0) for p in s.parameters()])
-    # assert np.allclose(emission.exp().data.numpy(), True_E, atol=0.1)
     print()
+
     print("Reached Convergence: ")
     print(converge)
+    print()
 
     states_seq, _ = model.decode(obs_seq)
 
     states_seq_unpacked = unpack_list(states_seq)
 
-    # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
-    #                           range(len(model.prob_state_1))])
-
-    # pred = (1 - state_summary[-2]) > 0.5
-    # pred = torch.cat(states_seq, 0).data.numpy()
-    # true = np.concatenate(states, 0)
     pred = torch.stack(unpack_list(states_seq))
     true = torch.stack(states_unpacked)
     accuracy = torch.mean(torch.abs(pred - true).float())

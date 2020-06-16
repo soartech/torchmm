@@ -327,7 +327,7 @@ def test_hmm_fit_viterbi():
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
 
     converge = model.fit(obs_seq, max_steps=500,
-                         epsilon=1e-2)
+                         epsilon=1e-2, restarts=3)
 
     # Not enough samples (only 1) to test
     # assert np.allclose(trans0.data.numpy(), True_pi)
@@ -389,7 +389,7 @@ def test_hmm_fit_viterbi_diagnormal():
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
 
     converge = model.fit(obs_seq, max_steps=500,
-                         epsilon=1e-2)
+                         epsilon=1e-2, restarts=3)
 
     # Not enough samples (only 1) to test
     # assert np.allclose(trans0.data.numpy(), True_pi)

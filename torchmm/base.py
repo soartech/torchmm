@@ -17,7 +17,8 @@ class Model(object):
 
     def init_params_random(self):
         """
-        Randomly sets the parameters of the model; used for model fitting.
+        Randomly sets the parameters of the model; used for random restarts
+        during model fitting.
         """
         raise NotImplementedError("init_params_random method not implemented")
 
@@ -57,15 +58,16 @@ class Model(object):
 
     def parameters(self):
         """
-        Returns the models parameters, as a list of tensors. This is is so
-        other models can optimize this model. For example, in the case of
-        nested models.
+        Returns the models parameters, as a list of tensors. These are the
+        parameters that define the model. These can be passed into the
+        set_parameters method.
         """
         raise NotImplementedError("parameters method not implemented")
 
     def set_parameters(self, params):
         """
-        Used to set the value of a models parameters
+        Used to set the value of a models parameters. Params should have an
+        identical format to that returned by the parameters() method.
         """
         raise NotImplementedError("set_parameters method not implemented")
 
@@ -76,12 +78,17 @@ class CategoricalModel(Model):
     the HMM. Uses a categorical distribution and a Dirchlet prior.
     """
 
-    def __init__(self, probs=None, prior=None):
+    def __init__(self, probs=None, prior=None, device="cpu"):
         """
-        Accepts a set of probabilites for the model, NOT both. This
-        also accepts a Dirichlet, or counts, prior. The prior is also a vector
-        with the same shape as probs. If no prior is provided, then it
+        Accepts a set of probabilites for emissions from the model. This also
+        accepts a Dirichlet, or counts, prior.
+
+        The prior is either a tensor with the same shape as probs or a
+        float/int, which gets expanded into a tensore with the provided
+        float/int value for every entry. If no prior is provided, then it
         defaults to a vector of 1's (i.e., add-one laplace smoothing).
+
+        The device specifies where the tensors are stored, defaults to cpu.
         """
         if probs is None:
             raise ValueError("Probs must be provided.")
@@ -92,13 +99,15 @@ class CategoricalModel(Model):
 
         if prior is None:
             self.prior = torch.ones_like(self.probs)
+        elif isinstance(prior, (float, int)):
+            self.prior = prior * torch.ones_like(self.probs).float()
         elif prior.shape == probs.shape:
             self.prior = prior.float()
         else:
             raise ValueError("Invalid prior. Ensure shape equals the shape of"
                              " the probs provided.")
 
-        self.device = "cpu"
+        self.to(device)
 
     def to(self, device):
         """
@@ -124,6 +133,7 @@ class CategoricalModel(Model):
     def sample(self, sample_shape=None):
         """
         Draws samples from this model and returns them in the specified shape.
+        If not sample shape is provided, then a single sample is returned.
         """
         if sample_shape is None:
             sample_shape = torch.tensor([1], device=self.device)
@@ -131,8 +141,8 @@ class CategoricalModel(Model):
 
     def log_prob(self, value):
         """
-        Returns the loglikelihood of x given the current categorical
-        distribution defined by the probs/logits.
+        Returns the loglikelihood of the provided values given the current
+        categorical distribution defined by the probs.
 
         Note that value can have an arbitrary shape and the returned value will
         have the same shape.
@@ -143,7 +153,7 @@ class CategoricalModel(Model):
         """
         Returns the model parameters for optimization.
         """
-        yield self.probs.clone().detach()
+        return [self.probs.clone().detach()]
 
     def set_parameters(self, params):
         """
@@ -159,8 +169,8 @@ class CategoricalModel(Model):
         maximize the data (the mean of the values), converts to and sets the
         corresponding logits.
 
-        .. todo::
-            Maybe could be modified with weights to support baum welch?
+        This model also incorporates the direchlet prior into updates, mainly
+        it adds the pseudocounts from the dirchelet prior to the actual counts.
         """
         counts = X.bincount(minlength=self.probs.shape[0]).float()
         self.probs = (counts + self.prior) / (counts.sum() + self.prior.sum())
@@ -174,11 +184,14 @@ class DiagNormalModel(Model):
     this assumes that states in the HMM are axis-aligned ellipses.
 
     The model also uses a Normal-Gamma prior for the mean and covariance matrix
-    values.
+    values. This distribution accepts a means_prior, which is the prior for the
+    mean value. It also accepts prec_alpha and prec_beta priors, these are the
+    alpha and beta parameters for a gamma prior over the precision of the
+    model.
     """
 
     def __init__(self, means, precs, means_prior=None, prec_alpha_prior=None,
-                 prec_beta_prior=None, n0=None):
+                 prec_beta_prior=None, n0=None, device="cpu"):
         """
         Accepts a set of mean and precisions for each dimension. Means and
         precs must have the same length, corresponding to the number of
@@ -204,8 +217,11 @@ class DiagNormalModel(Model):
 
         Finally, it is worth mentioning that the means, alpha, beta, and n0
         values jointly define a normal-gamma prior, so they are not independent
-        of each other. For example, changing the means or n0 value might impact
+        of each other. For example, changing the means or n0 value will impact
         how strongly the alpha and beta values affect the precision estimates.
+
+        Additionally, a pytorch device can be provided and the model will store
+        the tensors on this device.
         """
         if not isinstance(means, torch.Tensor):
             raise ValueError("Means must be a tensor.")
@@ -219,25 +235,36 @@ class DiagNormalModel(Model):
 
         if means_prior is None:
             self.means_prior = torch.zeros_like(self.means)
+        elif isinstance(means_prior, (float, int)):
+            self.means_prior = means_prior * torch.ones_like(
+                self.means).float()
         else:
             self.means_prior = means_prior.float()
 
         if prec_alpha_prior is None:
             self.prec_alpha_prior = torch.ones_like(self.precs)
+        elif isinstance(prec_alpha_prior, (float, int)):
+            self.prec_alpha_prior = prec_alpha_prior * torch.ones_like(
+                self.precs).float()
         else:
             self.prec_alpha_prior = prec_alpha_prior.float()
 
         if prec_beta_prior is None:
             self.prec_beta_prior = torch.ones_like(self.precs)
+        elif isinstance(prec_beta_prior, (float, int)):
+            self.prec_beta_prior = prec_beta_prior * torch.ones_like(
+                self.precs).float()
         else:
             self.prec_beta_prior = prec_beta_prior.float()
 
         if n0 is None:
             self.n0 = torch.tensor(1.)
+        elif isinstance(n0, (float, int)):
+            self.n0 = n0 * torch.tensor(1.)
         else:
             self.n0 = n0.float()
 
-        self.device = "cpu"
+        self.to(device)
 
     def to(self, device):
         """
@@ -305,7 +332,7 @@ class DiagNormalModel(Model):
         Returns the loglikelihood of the provided values given the current
         parameters.
 
-        Note, this does not include the priors.
+        Note, this does not include any adjustment for the priors.
         """
         return MultivariateNormal(
             loc=self.means,
@@ -316,8 +343,7 @@ class DiagNormalModel(Model):
         """
         Returns the model parameters for optimization.
         """
-        yield self.means.clone().detach()
-        yield self.precs.clone().detach()
+        return [self.means.clone().detach(), self.precs.clone().detach()]
 
     def set_parameters(self, params):
         """
@@ -342,16 +368,18 @@ class DiagNormalModel(Model):
             - Some of the math seems easier to pull out what I need from pg 8
                 here: https://www.cs.ubc.ca/~murphyk/Papers/bayesGauss.pdf
 
-        Note, if X is empty (no observations), then no update is made and the
-        means and precisions remain the same.
+        Note, if X is empty (no observations), then the means and precisions
+        get sent entirely based on the priors.
         """
         if X.shape[1] != self.means.shape[0]:
             raise ValueError("Mismatch in number of features.")
 
         n = X.shape[0]
 
-        # if n == 0, then do nothing.
-        if n > 0:
+        if n == 0:
+            self.means = self.means_prior
+            self.precs = self.prec_alpha_prior / self.prec_beta_prior
+        elif n > 0:
             means = X.mean(0)
             self.means = ((self.n0 * self.means_prior + n * means) /
                           (self.n0 + n))
