@@ -1,11 +1,11 @@
 import torch
-from torch.distributions.dirichlet import Dirichlet
 
 from torchmm.base import Model
+from torchmm.hmm_packed import HiddenMarkovModel
 from torchmm.base import CategoricalModel
 
 
-class HiddenMarkovModel(Model):
+class HiddenMarkovModel(HiddenMarkovModel):
     """
     A Hidden Markov Model, defined by states (defined by other models that
     determine the likelihood of observation), initial start probabilities, and
@@ -18,138 +18,6 @@ class HiddenMarkovModel(Model):
     .. todo::
         Consider removing this model and only supporting packed sequences.
     """
-
-    def __init__(self, states, T0=None, T=None, T0_prior=None, T_prior=None):
-        """
-        Constructor for the HMM accepts.
-
-        This model requires a list of states, which define the emission models
-        (e.g., categorical model, diagnormal model).
-
-        Additionally, it is typical to specify start probabilities (T0) for
-        each state as well as transition probabilities (T) from state to state.
-        If these are missing, then the model assumes that the start and
-        transition probabilites are uniform and equal (e.g., for a 3 state
-        model, the start probabilities would be 0.33, 0.33, and 0.33).
-
-        The model also accepts Dirchlet priors over the start and transition
-        probabilites. Both priors have the same length as their respective
-        start and transition parameters (priors can be specified for each state
-        and state to state transtion). Dirchlet priors correspond intuitively
-        to having previously observed counts over the number of times each
-        start/transition was observed. If none are provided, then the are
-        assumed to be ones (i.e., add-one laplace smoothing).
-
-        Note, internally the model converts probabilities into
-        log-probabilities to prevent underflows.
-        """
-        for s in states:
-            if not isinstance(s, Model):
-                raise ValueError("States must be models")
-
-        if T0 is not None and not isinstance(T0, torch.Tensor):
-            raise ValueError("T0 must be a torch tensor.")
-        if T0 is not None and not torch.allclose(T0.sum(0),
-                                                 torch.tensor([1.])):
-            raise ValueError("Sum of T0 != 1.0")
-
-        if T is not None and not isinstance(T, torch.Tensor):
-            raise ValueError("T must be a torch tensor.")
-        if T is not None and not torch.allclose(T.sum(1), torch.tensor([1.])):
-            raise ValueError("Sum of T rows != 1.0")
-
-        if T is not None and T.shape[0] != T.shape[1]:
-            raise ValueError("T must be a square matrix")
-        if T is not None and T.shape[0] != len(states):
-            raise ValueError("E has incorrect number of states")
-        if T0 is not None and T0.shape[0] != len(states):
-            raise ValueError("T0 has incorrect number of states")
-
-        self.states = states
-        self.device = "cpu"
-
-        if T0 is not None:
-            self.log_T0 = T0.log()
-        else:
-            self.log_T0 = torch.zeros([len(states)]).float()
-
-        if T is not None:
-            self.log_T = T.log()
-        else:
-            self.log_T = torch.zeros([len(states), len(states)]).float()
-
-        if T0_prior is None:
-            self.T0_prior = torch.ones_like(self.log_T0)
-        else:
-            self.T0_prior = T0_prior
-
-        if T_prior is None:
-            self.T_prior = torch.ones_like(self.log_T)
-        else:
-            self.T_prior = T_prior
-
-    def to(self, device):
-        """
-        Moves the model's parameters / tensors to the specified pytorch device.
-        """
-        self.device = device
-        self.log_T0 = self.log_T0.to(device)
-        self.log_T = self.log_T.to(device)
-        self.T0_prior = self.T0_prior.to(device)
-        self.T_prior = self.T_prior.to(device)
-
-        for s in self.states:
-            s.to(device)
-
-    def log_parameters_prob(self):
-        """
-        Computes the log probability of the parameters given priors.
-        """
-        ll = Dirichlet(self.T0_prior).log_prob(self.T0)
-        ll += Dirichlet(self.T_prior).log_prob(self.T).sum(0)
-        for s in self.states:
-            ll += s.log_parameters_prob()
-        return ll
-
-    def init_params_random(self):
-        """
-        Randomly sets the parameters of the model using the dirchlet priors.
-        """
-        self.log_T0 = Dirichlet(self.T0_prior).sample().log()
-        self.log_T = Dirichlet(self.T_prior).sample().log()
-        for s in self.states:
-            s.init_params_random()
-
-    def parameters(self):
-        """
-        Returns the set of parameters for optimization.
-
-        This makes it possible to nest models.
-
-        .. todo::
-            Need to rewrite to somehow check for parameters already returned.
-            For example, if states share the same emission parameters somehow,
-            then we only want them returned once.
-        """
-        yield self.log_T0
-        yield self.log_T
-        for s in self.states:
-            for p in s.parameters():
-                yield p
-
-    @property
-    def T0(self):
-        """
-        Returns the start probabilites (convert from log-probs to probs).
-        """
-        return self.log_T0.exp()
-
-    @property
-    def T(self):
-        """
-        Returns the transition probabilites (convert from log-probs to probs).
-        """
-        return self.log_T.exp()
 
     def sample(self, n_seq, n_obs):
         """
@@ -183,21 +51,6 @@ class HiddenMarkovModel(Model):
             obs[idx] = s.sample(idx.sum().unsqueeze(0))
 
         return obs, states
-
-    def log_prob(self, X):
-        """
-        Computes the log likelihood of the data X given the model.
-
-        X should have format N x O, where N is number of sequences and O is
-        number of observations in that sequence. Note, this requires all
-        sequences to have the same number of observations.
-
-        :param X: sequence/observation data
-        :type X: tensor with shape N x O x F, where N is number of sequences, O
-            is number of observations, and F is number of emission/features
-        :returns: tensor(1).
-        """
-        return self.filter(X).logsumexp(1).sum(0)
 
     def _emission_ll(self, X):
         """
@@ -233,22 +86,6 @@ class HiddenMarkovModel(Model):
         self._forward()
         return self.forward_ll[:, -1, :]
 
-    def predict(self, X):
-        """
-        Compute the posterior distributions over the next (future) states for
-        each sequence in X. Predicts 1 step into the future for each sequence.
-
-        .. todo::
-            Update to accept a number of timesteps to project into the future.
-
-        :param X: sequence/observation data
-        :type X: tensor with shape N x O x F, where N is number of sequences, O
-            is number of observations, and F is number of emission/features
-        :returns: tensor with shape N x S, where S is the number of states
-        """
-        states = self.filter(X)
-        return self._belief_prop_sum(states)
-
     def _forward(self):
         """
         The forward algorithm.
@@ -271,21 +108,6 @@ class HiddenMarkovModel(Model):
             self.backward_ll[:, t-1] = self._belief_prop_sum(
                 self.backward_ll[:, t, :] + self.obs_ll_full[:, t, :])
 
-    def fit(self, X, max_steps=500, epsilon=1e-2, randomize_first=False,
-            **kwargs):
-        """
-        Learn new model parameters from X using the specified alg.
-
-        :param X: sequence/observation data
-        :type X: tensor with shape N x O x F, where N is number of sequences, O
-            is number of observations, and F is number of emission/features
-        :returns: None
-        """
-        if randomize_first:
-            self.init_params_random()
-
-        return self._viterbi_training(X, max_steps=max_steps,
-                                      epsilon=epsilon, **kwargs)
 
     def decode(self, X):
         """
@@ -325,35 +147,6 @@ class HiddenMarkovModel(Model):
         self._forward_backward_inference(X)
         return self.posterior_ll
 
-    def _belief_prop_max(self, scores):
-        """
-        Propagates the scores over transition matrix. Returns the indices and
-        values of the max for each state.
-
-        Scores should have shape N x S, where N is the num seq and S is the
-        num states.
-        """
-        mv, mi = torch.max(scores.unsqueeze(2).expand(-1, -1,
-                                                      self.log_T.shape[0]) +
-                           self.log_T.unsqueeze(0).expand(scores.shape[0], -1,
-                                                          -1), 1)
-        return mv.squeeze(1), mi.squeeze(1)
-        # return torch.max(scores.view(-1, 1) + self.log_T, 0)
-
-    def _belief_prop_sum(self, scores):
-        """
-        Propagates the scores over transition matrix. Returns the indices and
-        values of the max for each state.
-
-        Scores should have shape N x S, where N is the num seq and S is the
-        num states.
-        """
-        s = torch.logsumexp(scores.unsqueeze(2).expand(-1, -1,
-                                                       self.log_T.shape[0]) +
-                            self.log_T.unsqueeze(0).expand(scores.shape[0], -1,
-                                                           -1), 1)
-        return s.squeeze(1)
-        # return torch.logsumexp(scores.view(-1, 1) + self.log_T, 0)
 
     def _viterbi_inference(self, X):
         """
@@ -534,15 +327,6 @@ class HiddenMarkovModel(Model):
         # print(self.ll_history)
 
         return self.converged
-
-    @property
-    def converged(self):
-        """
-        Specifies the convergence test for training.
-        """
-        return (len(self.ll_history) >= 2 and
-                (self.ll_history[-2] - self.ll_history[-1]).abs() <
-                self.epsilon)
 
 
 if __name__ == "__main__":
