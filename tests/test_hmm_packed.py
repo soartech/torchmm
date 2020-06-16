@@ -244,6 +244,8 @@ def test_hmm_parameters():
 
     actual = [T0.log(), T.log(), s1_orig, s2_orig]
     for i, p in enumerate(model.parameters()):
+        if i > 1:
+            p = torch.stack(p)
         assert torch.isclose(actual[i], p).all()
 
 

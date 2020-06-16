@@ -67,8 +67,8 @@ def test_diagnormalmodel_parmeters():
     assert torch.isclose(precs, torch.tensor([1.])).all()
     p[0] += 1
     p[1] += 1
-    assert torch.isclose(means, torch.tensor([1.])).all()
-    assert torch.isclose(precs, torch.tensor([2.])).all()
+    assert torch.isclose(means, torch.tensor([0.])).all()
+    assert torch.isclose(precs, torch.tensor([1.])).all()
 
 
 def test_diagnomralmodel_fit_no_data():
