@@ -46,6 +46,8 @@ def test_hmm_sample():
     s2 = CategoricalModel(probs=torch.tensor([0.0, 1.0]))
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
     obs_seq, states = model.sample(3, 10)
+    obs_seq = torch.stack(obs_seq)
+    states = torch.stack(states)
 
     assert obs_seq.shape == (3, 10)
     assert states.shape == (3, 10)
@@ -59,6 +61,8 @@ def test_hmm_sample():
     s2 = CategoricalModel(probs=torch.tensor([0.0, 1.0]))
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
     obs_seq, states = model.sample(4, 20)
+    obs_seq = torch.stack(obs_seq)
+    states = torch.stack(states)
 
     assert obs_seq.shape == (4, 20)
     assert states.shape == (4, 20)
@@ -72,6 +76,8 @@ def test_hmm_sample():
     s2 = CategoricalModel(probs=torch.tensor([0.0, 1.0]))
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
     obs_seq, states = model.sample(1, 20)
+    obs_seq = torch.stack(obs_seq)
+    states = torch.stack(states)
 
     assert obs_seq.shape == (1, 20)
     assert states.shape == (1, 20)
@@ -297,8 +303,8 @@ def test_hmm_fit_viterbi_categorical():
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
     obs_seq, states = model.sample(50, 100)
 
-    print("First 50 Obersvations:  ", obs_seq[0, :50])
-    print("First 5 Hidden States: ", states[0, :5])
+    print("First 5 Obersvations of seq 0:  ", obs_seq[0][:5])
+    print("First 5 Hidden States of seq 0: ", states[0][:5])
 
     T0 = torch.tensor([0.5, 0.5])
     T = torch.tensor([[0.6, 0.4],
@@ -338,8 +344,8 @@ def test_hmm_fit_viterbi_categorical():
     # pred = (1 - state_summary[-2]) > 0.5
     # pred = torch.cat(states_seq, 0).data.numpy()
     # true = np.concatenate(states, 0)
-    pred = states_seq
-    true = states
+    pred = torch.stack(states_seq)
+    true = torch.stack(states)
     accuracy = torch.mean(torch.abs(pred - true).float())
     print("Accuracy: ", accuracy)
     assert accuracy >= 0.9 or accuracy <= 0.1
@@ -359,8 +365,8 @@ def test_hmm_fit_viterbi_diagnormal():
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
     obs_seq, states = model.sample(50, 100)
 
-    print("First 5 Obersvations:  ", obs_seq[0, :5])
-    print("First 5 Hidden States: ", states[0, :5])
+    print("First 5 Obersvations of seq 0:  ", obs_seq[0][:5])
+    print("First 5 Hidden States of seq 0: ", states[0][:5])
 
     T0 = torch.tensor([0.75, 0.25])
     T = torch.tensor([[0.85, 0.15],
@@ -404,8 +410,8 @@ def test_hmm_fit_viterbi_diagnormal():
     # pred = (1 - state_summary[-2]) > 0.5
     # pred = torch.cat(states_seq, 0).data.numpy()
     # true = np.concatenate(states, 0)
-    pred = states_seq
-    true = states
+    pred = torch.stack(states_seq)
+    true = torch.stack(states)
     accuracy = torch.mean(torch.abs(pred - true).float())
     print("Accuracy: ", accuracy)
     assert accuracy >= 0.9 or accuracy <= 0.1

@@ -134,11 +134,16 @@ class HiddenMarkovModel(Model):
             For example, if states share the same emission parameters somehow,
             then we only want them returned once.
         """
-        yield self.log_T0
-        yield self.log_T
+        yield self.log_T0.clone().detach()
+        yield self.log_T.clone().detach()
         for s in self.states:
-            for p in s.parameters():
-                yield p
+            yield list(s.parameters())
+
+    def set_parameters(self, params):
+        self.log_T0 = params[0]
+        self.log_T = params[1]
+        for i, s in enumerate(self.states):
+            s.set_parameters(params[2+i])
 
     @property
     def T0(self):
@@ -394,7 +399,7 @@ class HiddenMarkovModel(Model):
         # return torch.logsumexp(scores.view(-1, 1) + self.log_T, 0)
 
     def fit(self, X, max_steps=500, epsilon=1e-3, randomize_first=False,
-            **kwargs):
+            restarts=10, **kwargs):
         """
         Learn new model parameters from X using the specified alg.
 
@@ -403,11 +408,25 @@ class HiddenMarkovModel(Model):
             is number of observations, and F is number of emission/features
         :returns: None
         """
-        if randomize_first:
-            self.init_params_random()
+        best_params = None
+        best_ll = float('-inf')
 
-        return self._viterbi_training(X, max_steps=max_steps,
-                                      epsilon=epsilon, **kwargs)
+        for i in range(restarts):
+            if i != 0 or randomize_first:
+                self.init_params_random()
+
+            converged = self._viterbi_training(X, max_steps=max_steps,
+                                               epsilon=epsilon, **kwargs)
+
+            ll = self.log_prob(X) + self.log_parameters_prob()
+
+            if ll > best_ll:
+                best_params = list(self.parameters())
+                best_ll = ll
+                best_converged = converged
+
+        self.set_parameters(best_params)
+        return best_converged
 
     def _viterbi_inference(self, X):
         """
@@ -592,7 +611,7 @@ class HiddenMarkovModel(Model):
         for i in range(max_steps):
             self._viterbi_training_step(X)
             if self.converged:
-                print('converged at step %i' % i)
+                # print('converged at step %i' % i)
                 break
 
         # print('HISTORY!')
@@ -622,10 +641,9 @@ if __name__ == "__main__":
     obs_seq, states = model.sample(3000, 30)
 
     obs_seq_unpacked = unpack_list(obs_seq)
-    print(torch.stack(obs_seq_unpacked))
     states_unpacked = unpack_list(states)
 
-    print("First 50 Obersvations of seq 0:  ", obs_seq_unpacked[0][:50])
+    print("First 5 Obersvations of seq 0:  ", obs_seq_unpacked[0][:5])
     print("First 5 Hidden States of seq 0: ", states_unpacked[0][:5])
 
     T0 = torch.tensor([0.5, 0.5])

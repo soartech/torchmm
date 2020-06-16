@@ -35,7 +35,7 @@ class torchmm_transform(TransformerMixin, BaseEstimator):
         self.n_states = k
         self.use_kpp = use_kpp
 
-    def fit(self, X, restarts=20):
+    def fit(self, X, restarts=1):
         best_ll = float('-inf')
         n_states = self.n_states
         X = torch.tensor([[_x] for _x in X]).float()
@@ -43,23 +43,21 @@ class torchmm_transform(TransformerMixin, BaseEstimator):
             if self.use_kpp:
                 centroids = kmeans_init(X.squeeze(), n_states)
 
-            T0 = torch.zeros(n_states)
+            T0 = torch.zeros(n_states).normal_()
             T0 = T0.softmax(0)
 
-            T = torch.zeros((n_states, n_states))
+            T = torch.zeros((n_states, n_states)).normal_()
             T = T.softmax(1)
             states = []
             for s_idx in range(n_states):
                 if self.use_kpp:
                     means = centroids[s_idx]
                 else:
-                    means = torch.ones(2)
+                    means = torch.ones(2).normal_()
                 precisions = torch.ones(2)
-
                 states.append(DiagNormalModel(means, precisions))
 
             hmm = HiddenMarkovModel(states, T0=T0, T=T)
-            hmm.init_params_random()
             hmm.fit(X, max_steps=5000, epsilon=1e-2)
 
             ll = hmm.log_prob(X) + hmm.log_parameters_prob()
@@ -77,7 +75,7 @@ class torchmm_transform(TransformerMixin, BaseEstimator):
 
     def predict(self, X):
         X = torch.tensor([[_x] for _x in X]).float()
-        return self.best_hmm.decode(X)[0].squeeze()
+        return torch.stack(self.best_hmm.decode(X)[0]).squeeze()
 
 
 class kmeans_transform(TransformerMixin, BaseEstimator):
@@ -117,7 +115,7 @@ class kmeans_transform(TransformerMixin, BaseEstimator):
 
     def predict(self, X):
         X = torch.tensor([[_x] for _x in X]).float()
-        return self.best_hmm.decode(X)[0].squeeze()
+        return torch.stack(self.best_hmm.decode(X)[0]).squeeze()
 
 
 if __name__ == "__main__":

@@ -143,7 +143,7 @@ class CategoricalModel(Model):
         """
         Returns the model parameters for optimization.
         """
-        yield self.probs
+        yield self.probs.clone().detach()
 
     def set_parameters(self, params):
         """
@@ -316,8 +316,8 @@ class DiagNormalModel(Model):
         """
         Returns the model parameters for optimization.
         """
-        yield self.means
-        yield self.precs
+        yield self.means.clone().detach()
+        yield self.precs.clone().detach()
 
     def set_parameters(self, params):
         """
