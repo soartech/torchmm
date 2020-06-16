@@ -180,4 +180,3 @@ def kmeans(X, k, tol=1e-4, max_iter=100):
             break
 
     return initial_state
-
