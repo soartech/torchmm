@@ -78,7 +78,7 @@ class CategoricalModel(Model):
     the HMM. Uses a categorical distribution and a Dirchlet prior.
     """
 
-    def __init__(self, probs=None, prior=None, device="cpu"):
+    def __init__(self, probs, prior=None, device="cpu"):
         """
         Accepts a set of probabilites for emissions from the model. This also
         accepts a Dirichlet, or counts, prior.
@@ -90,8 +90,6 @@ class CategoricalModel(Model):
 
         The device specifies where the tensors are stored, defaults to cpu.
         """
-        if probs is None:
-            raise ValueError("Probs must be provided.")
         if not torch.isclose(probs.sum(), torch.tensor(1.0)):
             raise ValueError("Probs must sum to 1.")
 

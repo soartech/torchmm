@@ -10,8 +10,6 @@ from hmmlearn.hmm import GaussianHMM
 
 from torchmm.hmm import HiddenMarkovModel
 from torchmm.base import DiagNormalModel
-from torchmm.utils import kmeans
-from torchmm.utils import kmeans_init
 
 
 GaussianHMM = partial(GaussianHMM,
