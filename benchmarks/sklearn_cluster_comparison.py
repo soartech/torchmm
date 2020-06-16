@@ -1,19 +1,22 @@
 # -*- coding: utf-8 -*-
-from torchmm.utils import kmeans_init, kmeans
-from torchmm.hmm import HiddenMarkovModel
-from torchmm.base import CategoricalModel, DiagNormalModel
-import torch
+import time
+import warnings
+from itertools import cycle, islice
+
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.mixture import GaussianMixture
 from sklearn.base import BaseEstimator, TransformerMixin
-from itertools import cycle, islice
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import kneighbors_graph
 from sklearn import cluster, datasets, mixture
 import matplotlib.pyplot as plt
 import numpy as np
-import warnings
-import time
+import torch
+
+from torchmm.hmm import HiddenMarkovModel
+from torchmm.hmm import kpp_rand
+from torchmm.hmm import kmeans_rand
+from torchmm.base import DiagNormalModel
 """
 Created on Mon Jun  1 21:12:06 2020
 
@@ -29,93 +32,38 @@ torch.manual_seed(seed)
 
 
 class torchmm_transform(TransformerMixin, BaseEstimator):
-    def __init__(self, k, use_kpp=True):
-        # self.T0 = torch.tensor([1/k]*k)
-        # self.T = torch.tensor([torch.tensor([1/k]*k) for _ in range(k)])
+    def __init__(self, k, rand_fun=None):
         self.n_states = k
-        self.use_kpp = use_kpp
-
-    def fit(self, X, restarts=1):
-        best_ll = float('-inf')
-        n_states = self.n_states
-        X = torch.tensor([[_x] for _x in X]).float()
-        for _ in range(restarts):
-            if self.use_kpp:
-                centroids = kmeans_init(X.squeeze(), n_states)
-
-            T0 = torch.zeros(n_states).normal_()
-            T0 = T0.softmax(0)
-
-            T = torch.zeros((n_states, n_states)).normal_()
-            T = T.softmax(1)
-            states = []
-            for s_idx in range(n_states):
-                if self.use_kpp:
-                    means = centroids[s_idx]
-                else:
-                    means = torch.ones(2).normal_()
-                precisions = torch.ones(2)
-                states.append(DiagNormalModel(means, precisions))
-
-            hmm = HiddenMarkovModel(states, T0=T0, T=T)
-            hmm.fit(X, max_steps=5000, epsilon=1e-2)
-
-            ll = hmm.log_prob(X) + hmm.log_parameters_prob()
-            if ll > best_ll:
-                best_ll = ll
-                self.best_hmm = hmm
-
-        if self.use_kpp:
-            print("torchmm k++")
-        else:
-            print("torchmm rand init")
-        print(best_ll)
-
-        return self
-
-    def predict(self, X):
-        X = torch.tensor([[_x] for _x in X]).float()
-        return torch.stack(self.best_hmm.decode(X)[0]).squeeze()
-
-
-class kmeans_transform(TransformerMixin, BaseEstimator):
-    def __init__(self, k):
-        # self.T0 = torch.tensor([1/k]*k)
-        # self.T = torch.tensor([torch.tensor([1/k]*k) for _ in range(k)])
-        self.n_states = k
+        self.rand_fun = rand_fun
 
     def fit(self, X, restarts=15):
-        best_ll = float('-inf')
         n_states = self.n_states
         X = torch.tensor([[_x] for _x in X]).float()
-        for r in range(restarts):
-            centroids = kmeans(X.squeeze(), n_states)
 
-            T0 = torch.zeros(n_states).normal_() / 10
-            T0 = T0.softmax(0)
+        T0 = torch.zeros(n_states).softmax(0)
+        T = torch.zeros((n_states, n_states)).softmax(1)
 
-            T = torch.zeros((n_states, n_states)).normal_() / 10
-            T = T.softmax(1)
+        states = []
+        for s_idx in range(n_states):
+            means = torch.zeros(2)
+            precisions = torch.ones(2)
+            states.append(DiagNormalModel(means, precisions))
 
-            states = []
-            for s_idx in range(n_states):
-                means = centroids[s_idx]
-                precisions = torch.ones(2)
-                states.append(DiagNormalModel(means, precisions))
+        self.hmm = HiddenMarkovModel(states, T0=T0, T=T)
+        self.hmm.fit(X, max_steps=500, epsilon=1e-3, restarts=restarts,
+                     rand_fun=self.rand_fun)
 
-            hmm = HiddenMarkovModel(states, T0=T0, T=T)
-            ll = hmm.log_prob(X) + hmm.log_parameters_prob()
-            if ll > best_ll:
-                best_ll = ll
-                self.best_hmm = hmm
+        ll = self.hmm.log_prob(X) + self.hmm.log_parameters_prob()
 
-        print("torchmm kmeans")
-        print(best_ll)
+        print("torchmm", self.rand_fun)
+        print(ll)
+
         return self
 
     def predict(self, X):
         X = torch.tensor([[_x] for _x in X]).float()
-        return torch.stack(self.best_hmm.decode(X)[0]).squeeze()
+        return torch.stack(self.hmm.decode(X)[0]).squeeze()
+
 
 
 if __name__ == "__main__":
@@ -219,10 +167,12 @@ if __name__ == "__main__":
         gmm = mixture.GaussianMixture(
             n_components=params['n_clusters'], covariance_type='diag')
 
-        torchmm_model_1 = torchmm_transform(params['n_clusters'], use_kpp=True)
-        torchmm_model_2 = torchmm_transform(
-            params['n_clusters'], use_kpp=False)
-        kmeans_model = kmeans_transform(params['n_clusters'])
+        torchmm_model_0 = torchmm_transform(params['n_clusters'],
+                                            rand_fun=None)
+        torchmm_model_1 = torchmm_transform(params['n_clusters'],
+                                            rand_fun=kpp_rand)
+        torchmm_model_2 = torchmm_transform(params['n_clusters'],
+                                            rand_fun=kmeans_rand)
         clustering_algorithms = (
             ('MiniBatchKMeans', two_means),
             # ('AffinityPropagation', affinity_propagation),
@@ -234,9 +184,9 @@ if __name__ == "__main__":
             # ('OPTICS', optics),
             # ('Birch', birch),
             ('GaussianMixture', gmm),
-            ('Torchmm - Random Init', torchmm_model_2),
+            ('Torchmm - Random Init', torchmm_model_0),
             ('Torchmm - K++ Init', torchmm_model_1),
-            ('Torchmm - Kmeans Init', kmeans_model)
+            ('Torchmm - Kmeans Init', torchmm_model_2)
         )
 
         # clustering_algorithms = (('MiniBatchKMeans', two_means),

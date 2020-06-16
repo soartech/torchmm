@@ -5,6 +5,28 @@ from torchmm.hmm_packed import HiddenMarkovModel
 from torchmm.base import CategoricalModel
 from torchmm.utils import unpack_list
 from torchmm.utils import pack_list
+from torchmm.utils import kmeans_init
+from torchmm.utils import kmeans
+
+
+def kpp_rand(hmm, X):
+    hmm.init_params_random()
+    n_states = len(hmm.states)
+    X = torch.stack(unpack_list(X))
+    centroids = kmeans_init(X.squeeze(), n_states)
+
+    for s_idx, s in enumerate(hmm.states):
+        s.means = centroids[s_idx]
+
+
+def kmeans_rand(hmm, X):
+    hmm.init_params_random()
+    n_states = len(hmm.states)
+    X = torch.stack(unpack_list(X))
+    centroids = kmeans(X.squeeze(), n_states)
+
+    for s_idx, s in enumerate(hmm.states):
+        s.means = centroids[s_idx]
 
 
 class HiddenMarkovModel(HiddenMarkovModel):

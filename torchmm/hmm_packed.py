@@ -399,7 +399,7 @@ class HiddenMarkovModel(Model):
         # return torch.logsumexp(scores.view(-1, 1) + self.log_T, 0)
 
     def fit(self, X, max_steps=500, epsilon=1e-3, randomize_first=False,
-            restarts=10, **kwargs):
+            restarts=100, rand_fun=None, **kwargs):
         """
         Learn new model parameters from X using the specified alg.
 
@@ -413,7 +413,10 @@ class HiddenMarkovModel(Model):
 
         for i in range(restarts):
             if i != 0 or randomize_first:
-                self.init_params_random()
+                if rand_fun is None:
+                    self.init_params_random()
+                else:
+                    rand_fun(self, X)
 
             converged = self._viterbi_training(X, max_steps=max_steps,
                                                epsilon=epsilon, **kwargs)
