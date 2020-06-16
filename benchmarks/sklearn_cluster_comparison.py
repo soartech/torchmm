@@ -13,9 +13,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+from torchmm.hmm_packed import kpp_rand
+from torchmm.hmm_packed import kmeans_rand
 from torchmm.hmm import HiddenMarkovModel
-from torchmm.hmm import kpp_rand
-from torchmm.hmm import kmeans_rand
 from torchmm.base import DiagNormalModel
 """
 Created on Mon Jun  1 21:12:06 2020

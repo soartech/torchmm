@@ -4,6 +4,7 @@ from functools import partial
 
 from matplotlib import pyplot as plt
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import adjusted_rand_score
 
 from hmmlearn.hmm import GaussianHMM
 
@@ -53,6 +54,7 @@ def fit_hmm_learn(seqs, n_states, axis):
                  color=colors[100:200], marker='o')
     axis.scatter(seqs[200:, :, 0], seqs[200:, :, 1], color=colors[200:],
                  marker='s')
+    return labels
 
 
 def fit_with_random_restarts(seqs, n_states, restarts=100):
@@ -80,19 +82,20 @@ def fit_torchmm(seqs, n_states, axis):
     """
     hmm = fit_with_random_restarts(seqs, n_states)
     score = hmm.log_prob(seqs) + hmm.log_parameters_prob()
-    labels = hmm.decode(seqs)
+    labels, _ = hmm.decode(seqs)
     print('ll', score)
     print('ll (no prior)', hmm.log_prob(seqs))
 
     axis.set_title("Torchmm (ll=%0.2f)" % score)
     possible_colors = ['orange', 'blue', 'green', 'red']
-    colors = [possible_colors[e[0]] for e in labels[0]]
+    colors = [possible_colors[e[0]] for e in labels]
     axis.scatter(seqs[:100, :, 0], seqs[:100, :, 1], color=colors[:100],
                  marker='^')
     axis.scatter(seqs[100:200, :, 0], seqs[100:200, :, 1],
                  color=colors[100:200], marker='o')
     axis.scatter(seqs[200:, :, 0], seqs[200:, :, 1], color=colors[200:],
                  marker='s')
+    return labels
 
 
 if __name__ == "__main__":
@@ -101,7 +104,7 @@ if __name__ == "__main__":
     Y = torch.zeros((100, 2)).float()
     Y.normal_(0, 0.25)
     Z = torch.zeros((100, 2)).float()
-    Z.normal_(1, 0.25)
+    Z.normal_(2, 0.25)
     X = torch.cat((X, Y, Z))
 
     X = torch.tensor(StandardScaler().fit_transform(X.cpu().detach().numpy()))
@@ -114,7 +117,9 @@ if __name__ == "__main__":
 
     f, (ax1, ax2) = plt.subplots(1, 2)
 
-    fit_hmm_learn(X_np, n_states, axis=ax1)
-    fit_torchmm(X, n_states, axis=ax2)
+    hmmlearn_labels = fit_hmm_learn(X_np, n_states, axis=ax1)
+    torchmm_labels = fit_torchmm(X, n_states, axis=ax2)
+
+    print("ARI=%0.3f" % adjusted_rand_score(hmmlearn_labels, torchmm_labels))
 
     plt.show()

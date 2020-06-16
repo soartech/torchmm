@@ -9,6 +9,28 @@ from torchmm.base import Model
 # from torchmm.hmm import HiddenMarkovModel
 from torchmm.base import CategoricalModel
 from torchmm.utils import unpack_list
+from torchmm.utils import kmeans_init
+from torchmm.utils import kmeans
+
+
+def kpp_rand(hmm, X):
+    hmm.init_params_random()
+    n_states = len(hmm.states)
+    X = torch.stack(unpack_list(X))
+    centroids = kmeans_init(X.squeeze(), n_states)
+
+    for s_idx, s in enumerate(hmm.states):
+        s.means = centroids[s_idx]
+
+
+def kmeans_rand(hmm, X):
+    hmm.init_params_random()
+    n_states = len(hmm.states)
+    X = torch.stack(unpack_list(X))
+    centroids = kmeans(X.squeeze(), n_states)
+
+    for s_idx, s in enumerate(hmm.states):
+        s.means = centroids[s_idx]
 
 
 class HiddenMarkovModel(Model):
@@ -399,7 +421,7 @@ class HiddenMarkovModel(Model):
         # return torch.logsumexp(scores.view(-1, 1) + self.log_T, 0)
 
     def fit(self, X, max_steps=500, epsilon=1e-3, randomize_first=False,
-            restarts=100, rand_fun=None, **kwargs):
+            restarts=10, rand_fun=None, **kwargs):
         """
         Learn new model parameters from X using the specified alg.
 
