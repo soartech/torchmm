@@ -223,7 +223,8 @@ class HiddenMarkovModel(Model):
         # Sample the emissions
         for i, s in enumerate(self.states):
             idx = states == i
-            obs[idx] = s.sample(idx.sum().unsqueeze(0))
+            if idx.sum() > 0:
+                obs[idx] = s.sample(idx.sum().unsqueeze(0))
 
         packed_obs = pack_padded_sequence(
             obs, torch.tensor(obs.shape[1]).unsqueeze(0).expand(obs.shape[0]),
@@ -241,6 +242,8 @@ class HiddenMarkovModel(Model):
         This is different than unpacked equivelent because there is one less
         dimension.
         """
+
+        # TODO set emission prob to 1 (log_prob of 0) for missing.
         ll = torch.zeros([X.data.shape[0], len(self.states)],
                          device=self.device).float()
         for i, s in enumerate(self.states):
