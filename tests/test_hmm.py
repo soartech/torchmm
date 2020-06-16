@@ -89,7 +89,6 @@ def test_belief_propagation():
               range(n_states)]
 
     model = HiddenMarkovModel(states, T0=T0, T=T)
-    model.update_log_params()
 
     # compute max path from each node to each node
     # will give a matrix, row is the source col is the dest
@@ -220,10 +219,10 @@ def test_hmm_parameters():
     T0 = torch.tensor([0.5, 0.5])
     T = torch.tensor([[0.7, 0.3],
                       [0.3, 0.7]])
-    s1_orig = torch.tensor([0.8, 0.2]).log()
-    s2_orig = torch.tensor([0.1, 0.9]).log()
-    s1 = CategoricalModel(logits=s1_orig)
-    s2 = CategoricalModel(logits=s2_orig)
+    s1_orig = torch.tensor([0.8, 0.2])
+    s2_orig = torch.tensor([0.1, 0.9])
+    s1 = CategoricalModel(probs=s1_orig)
+    s2 = CategoricalModel(probs=s2_orig)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
 
     actual = [T0.log(), T.log(), s1_orig, s2_orig]
@@ -235,10 +234,10 @@ def test_hmm_smooth():
     T0 = torch.tensor([0.5, 0.5])
     T = torch.tensor([[0.7, 0.3],
                       [0.3, 0.7]])
-    s1_orig = torch.tensor([0.8, 0.2]).log()
-    s2_orig = torch.tensor([0.1, 0.9]).log()
-    s1 = CategoricalModel(logits=s1_orig)
-    s2 = CategoricalModel(logits=s2_orig)
+    s1_orig = torch.tensor([0.8, 0.2])
+    s2_orig = torch.tensor([0.1, 0.9])
+    s1 = CategoricalModel(probs=s1_orig)
+    s2 = CategoricalModel(probs=s2_orig)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
 
     obs_seq = torch.tensor([[1, 1]])
@@ -267,10 +266,10 @@ def test_hmm_predict_aima_umbrella_example():
     T0 = torch.tensor([0.5, 0.5])
     T = torch.tensor([[0.7, 0.3],
                       [0.3, 0.7]])
-    s1_orig = torch.tensor([0.8, 0.2]).log()
-    s2_orig = torch.tensor([0.1, 0.9]).log()
-    s1 = CategoricalModel(logits=s1_orig)
-    s2 = CategoricalModel(logits=s2_orig)
+    s1_orig = torch.tensor([0.8, 0.2])
+    s2_orig = torch.tensor([0.1, 0.9])
+    s1 = CategoricalModel(probs=s1_orig)
+    s2 = CategoricalModel(probs=s2_orig)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
 
     obs_seq = torch.tensor([[1]])
@@ -291,10 +290,10 @@ def test_hmm_fit_viterbi_categorical():
     T0 = torch.tensor([0.75, 0.25])
     T = torch.tensor([[0.85, 0.15],
                       [0.12, 0.88]])
-    s1_orig = torch.tensor([0.99, 0.01]).log()
-    s2_orig = torch.tensor([0.05, 0.95]).log()
-    s1 = CategoricalModel(logits=s1_orig)
-    s2 = CategoricalModel(logits=s2_orig)
+    s1_orig = torch.tensor([0.99, 0.01])
+    s2_orig = torch.tensor([0.05, 0.95])
+    s1 = CategoricalModel(probs=s1_orig)
+    s2 = CategoricalModel(probs=s2_orig)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
     obs_seq, states = model.sample(50, 100)
 
@@ -304,14 +303,13 @@ def test_hmm_fit_viterbi_categorical():
     T0 = torch.tensor([0.5, 0.5])
     T = torch.tensor([[0.6, 0.4],
                       [0.5, 0.5]])
-    s1_orig = torch.tensor([0.6, 0.4]).log()
-    s2_orig = torch.tensor([0.5, 0.5]).log()
-    s1 = CategoricalModel(logits=s1_orig)
-    s2 = CategoricalModel(logits=s2_orig)
+    s1_orig = torch.tensor([0.6, 0.4])
+    s2_orig = torch.tensor([0.5, 0.5])
+    s1 = CategoricalModel(probs=s1_orig)
+    s2 = CategoricalModel(probs=s2_orig)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
 
-    converge = model.fit(obs_seq, max_steps=500,
-                         epsilon=1e-2, alg="viterbi")
+    converge = model.fit(obs_seq, max_steps=500, epsilon=1e-2)
 
     # Not enough samples (only 1) to test
     # assert np.allclose(trans0.data.numpy(), True_pi)
@@ -325,141 +323,6 @@ def test_hmm_fit_viterbi_categorical():
     print("Emission Matrix: ")
     for s in model.states:
         print([p.softmax(0) for p in s.parameters()])
-    # assert np.allclose(emission.exp().data.numpy(), True_E, atol=0.1)
-    print()
-    print("Reached Convergence: ")
-    print(converge)
-
-    assert converge
-
-    states_seq, _ = model.decode(obs_seq)
-
-    # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
-    #                           range(len(model.prob_state_1))])
-
-    # pred = (1 - state_summary[-2]) > 0.5
-    # pred = torch.cat(states_seq, 0).data.numpy()
-    # true = np.concatenate(states, 0)
-    pred = states_seq
-    true = states
-    accuracy = torch.mean(torch.abs(pred - true).float())
-    print("Accuracy: ", accuracy)
-    assert accuracy >= 0.9 or accuracy <= 0.1
-
-
-def test_hmm_fit_autograd_categorical():
-
-    T0 = torch.tensor([0.75, 0.25])
-    T = torch.tensor([[0.85, 0.15],
-                      [0.12, 0.88]])
-    s1_orig = torch.tensor([0.99, 0.01]).log()
-    s2_orig = torch.tensor([0.05, 0.95]).log()
-    s1 = CategoricalModel(logits=s1_orig)
-    s2 = CategoricalModel(logits=s2_orig)
-    model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
-    obs_seq, states = model.sample(50, 100)
-
-    print("First 50 Obersvations:  ", obs_seq[0, :50])
-    print("First 5 Hidden States: ", states[0, :5])
-
-    T0 = torch.tensor([0.5, 0.5])
-    T = torch.tensor([[0.6, 0.4],
-                      [0.5, 0.5]])
-    s1_orig = torch.tensor([0.6, 0.4]).log()
-    s2_orig = torch.tensor([0.5, 0.5]).log()
-    s1 = CategoricalModel(logits=s1_orig)
-    s2 = CategoricalModel(logits=s2_orig)
-    model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
-
-    import time
-    t0 = time.time()
-    converge = model.fit(obs_seq, max_steps=500,
-                         epsilon=1e-2, alg="autograd", lr=1)
-    t1 = time.time()
-    total = t1-t0
-    print("CPU runtime", total)
-    # converge = model.fit(obs_seq, max_steps=500,
-    #                      epsilon=1e-2, alg="autograd")
-
-    # Not enough samples (only 1) to test
-    # assert np.allclose(trans0.data.numpy(), True_pi)
-    print("Pi Matrix: ")
-    print(model.T0)
-
-    print("Transition Matrix: ")
-    print(model.T)
-    # assert np.allclose(transition.exp().data.numpy(), True_T, atol=0.1)
-    print()
-    print("Emission Matrix: ")
-    for s in model.states:
-        print([p.softmax(0) for p in s.parameters()])
-    # assert np.allclose(emission.exp().data.numpy(), True_E, atol=0.1)
-    print()
-    print("Reached Convergence: ")
-    print(converge)
-
-    assert converge
-
-    states_seq, _ = model.decode(obs_seq)
-
-    # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
-    #                           range(len(model.prob_state_1))])
-
-    # pred = (1 - state_summary[-2]) > 0.5
-    # pred = torch.cat(states_seq, 0).data.numpy()
-    # true = np.concatenate(states, 0)
-    pred = states_seq
-    true = states
-    accuracy = torch.mean(torch.abs(pred - true).float())
-    print("Accuracy: ", accuracy)
-    assert accuracy >= 0.9 or accuracy <= 0.1
-
-
-def test_hmm_fit_autograd_diagnormal():
-
-    T0 = torch.tensor([0.75, 0.25])
-    T = torch.tensor([[0.85, 0.15],
-                      [0.12, 0.88]])
-    s1_means = torch.tensor([0.0, 0.0, 0.0])
-    s1_precs = torch.tensor([1.0, 1.0, 1.0])
-    s2_means = torch.tensor([10.0, 10.0, 10.0])
-    s2_precs = torch.tensor([1.0, 1.0, 1.0])
-    s1 = DiagNormalModel(means=s1_means, precs=s1_precs)
-    s2 = DiagNormalModel(means=s2_means, precs=s2_precs)
-    model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
-    obs_seq, states = model.sample(50, 100)
-
-    print("First 5 Obersvations:  ", obs_seq[0, :5])
-    print("First 5 Hidden States: ", states[0, :5])
-
-    T0 = torch.tensor([0.75, 0.25])
-    T = torch.tensor([[0.85, 0.15],
-                      [0.12, 0.88]])
-    s1_means = torch.tensor([3.0, 3.0, 3.0])
-    s1_precs = torch.tensor([1.0, 1.0, 1.0])
-    s2_means = torch.tensor([6.0, 6.0, 6.0])
-    s2_precs = torch.tensor([1.0, 1.0, 1.0])
-    s1 = DiagNormalModel(means=s1_means, precs=s1_precs)
-    s2 = DiagNormalModel(means=s2_means, precs=s2_precs)
-    model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
-
-    converge = model.fit(obs_seq, max_steps=500,
-                         epsilon=1e-2, alg="autograd", lr=1e-1)
-
-    # Not enough samples (only 1) to test
-    # assert np.allclose(trans0.data.numpy(), True_pi)
-    print("Pi Matrix: ")
-    print(model.T0)
-
-    print("Transition Matrix: ")
-    print(model.T)
-    # assert np.allclose(transition.exp().data.numpy(), True_T, atol=0.1)
-    print()
-    print("Emission: ")
-    for s in model.states:
-        p = list(s.parameters())
-        print("Means", p[0])
-        print("Precisions", p[1].abs())
     # assert np.allclose(emission.exp().data.numpy(), True_E, atol=0.1)
     print()
     print("Reached Convergence: ")
@@ -510,8 +373,7 @@ def test_hmm_fit_viterbi_diagnormal():
     s2 = DiagNormalModel(means=s2_means, precs=s2_precs)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
 
-    converge = model.fit(obs_seq, max_steps=500,
-                         epsilon=1e-2, alg="viterbi")
+    converge = model.fit(obs_seq, max_steps=500, epsilon=1e-2)
 
     # Not enough samples (only 1) to test
     # assert np.allclose(trans0.data.numpy(), True_pi)
@@ -543,79 +405,6 @@ def test_hmm_fit_viterbi_diagnormal():
     # pred = torch.cat(states_seq, 0).data.numpy()
     # true = np.concatenate(states, 0)
     pred = states_seq
-    true = states
-    accuracy = torch.mean(torch.abs(pred - true).float())
-    print("Accuracy: ", accuracy)
-    assert accuracy >= 0.9 or accuracy <= 0.1
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(),
-                    reason="Requires CUDA Device")
-def test_hmm_fit_autograd_gpu():
-
-    device = torch.device('cuda:0')
-
-    T0 = torch.tensor([0.75, 0.25])
-    T = torch.tensor([[0.85, 0.15],
-                      [0.12, 0.88]])
-    s1_orig = torch.tensor([0.99, 0.01]).log()
-    s2_orig = torch.tensor([0.05, 0.95]).log()
-    s1 = CategoricalModel(logits=s1_orig)
-    s2 = CategoricalModel(logits=s2_orig)
-    model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
-
-    obs_seq, states = model.sample(50, 100)
-
-    print("First 50 Obersvations:  ", obs_seq[0, :50])
-    print("First 5 Hidden States: ", states[0, :5])
-
-    T0 = torch.tensor([0.5, 0.5])
-    T = torch.tensor([[0.6, 0.4],
-                      [0.5, 0.5]])
-    s1_orig = torch.tensor([0.6, 0.4]).log()
-    s2_orig = torch.tensor([0.5, 0.5]).log()
-    s1 = CategoricalModel(logits=s1_orig)
-    s2 = CategoricalModel(logits=s2_orig)
-    model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
-    model.to(device)
-
-    import time
-    obs_seq = obs_seq.to(device)
-    t0 = time.time()
-    converge = model.fit(obs_seq, max_steps=500,
-                         epsilon=1e-2, alg="autograd", lr=1e-1)
-    t1 = time.time()
-    total = t1-t0
-    print("GPU runtime", total)
-
-    # Not enough samples (only 1) to test
-    # assert np.allclose(trans0.data.numpy(), True_pi)
-    print("Pi Matrix: ")
-    print(model.T0)
-
-    print("Transition Matrix: ")
-    print(model.T)
-    # assert np.allclose(transition.exp().data.numpy(), True_T, atol=0.1)
-    print()
-    print("Emission Matrix: ")
-    for s in model.states:
-        print([p.softmax(0) for p in s.parameters()])
-    # assert np.allclose(emission.exp().data.numpy(), True_E, atol=0.1)
-    print()
-    print("Reached Convergence: ")
-    print(converge)
-
-    assert converge
-
-    states_seq, _ = model.decode(obs_seq)
-
-    # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
-    #                           range(len(model.prob_state_1))])
-
-    # pred = (1 - state_summary[-2]) > 0.5
-    # pred = torch.cat(states_seq, 0).data.numpy()
-    # true = np.concatenate(states, 0)
-    pred = states_seq.to("cpu")
     true = states
     accuracy = torch.mean(torch.abs(pred - true).float())
     print("Accuracy: ", accuracy)

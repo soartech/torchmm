@@ -76,33 +76,27 @@ class CategoricalModel(Model):
     the HMM. Uses a categorical distribution and a Dirchlet prior.
     """
 
-    def __init__(self, probs=None, logits=None, prior=None):
+    def __init__(self, probs=None, prior=None):
         """
-        Accepts a set of probabilites OR logits for the model, NOT both. This
+        Accepts a set of probabilites for the model, NOT both. This
         also accepts a Dirichlet, or counts, prior. The prior is also a vector
-        with the same shape as probs/logits. If no prior is provided, then it
+        with the same shape as probs. If no prior is provided, then it
         defaults to a vector of 1's (i.e., add-one laplace smoothing).
-
-        Internally, the model uses logits (probs are converted into logits)
-        because they have better properties with respect to overflow/underflow.
         """
-        if probs is not None and logits is not None:
-            raise ValueError("Both probs and logits provided; only one should"
-                             " be used.")
-        elif probs is not None:
-            self.logits = probs.float().log()
-        elif logits is not None:
-            self.logits = logits.float()
-        else:
-            raise ValueError("Neither probs or logits provided; one must be.")
+        if probs is None:
+            raise ValueError("Probs must be provided.")
+        if not torch.isclose(probs.sum(), torch.tensor(1.0)):
+            raise ValueError("Probs must sum to 1.")
+
+        self.probs = probs.float()
 
         if prior is None:
-            self.prior = torch.ones_like(self.logits)
-        elif prior.shape == logits.shape:
+            self.prior = torch.ones_like(self.probs)
+        elif prior.shape == probs.shape:
             self.prior = prior.float()
         else:
             raise ValueError("Invalid prior. Ensure shape equals the shape of"
-                             " the logits or probs provided.")
+                             " the probs provided.")
 
         self.device = "cpu"
 
@@ -110,7 +104,7 @@ class CategoricalModel(Model):
         """
         Moves the model's parameters / tensors to the specified pytorch device.
         """
-        self.logits = self.logits.to(device)
+        self.probs = self.probs.to(device)
         self.prior = self.prior.to(device)
         self.device = device
 
@@ -119,13 +113,13 @@ class CategoricalModel(Model):
         Returns the loglikelihood of the parameter estimates given the
         Dirichlet prior.
         """
-        return Dirichlet(self.prior).log_prob(self.logits.softmax(0))
+        return Dirichlet(self.prior).log_prob(self.probs)
 
     def init_params_random(self):
         """
         Randomly samples the probs/logits using the Dirchlet prior.
         """
-        self.logits = Dirichlet(self.prior).sample().log()
+        self.probs = Dirichlet(self.prior).sample()
 
     def sample(self, sample_shape=None):
         """
@@ -133,7 +127,7 @@ class CategoricalModel(Model):
         """
         if sample_shape is None:
             sample_shape = torch.tensor([1], device=self.device)
-        return Categorical(logits=self.logits).sample(sample_shape)
+        return Categorical(probs=self.probs).sample(sample_shape)
 
     def log_prob(self, value):
         """
@@ -143,20 +137,20 @@ class CategoricalModel(Model):
         Note that value can have an arbitrary shape and the returned value will
         have the same shape.
         """
-        return Categorical(logits=self.logits).log_prob(value)
+        return Categorical(probs=self.probs).log_prob(value)
 
     def parameters(self):
         """
         Returns the model parameters for optimization.
         """
-        yield self.logits
+        yield self.probs
 
     def set_parameters(self, params):
         """
-        Sets the logits for the model to the first element of the provided
+        Sets the params for the model to the first element of the provided
         params.
         """
-        self.logits = params[0]
+        self.probs = params[0]
 
     def fit(self, X):
         """
@@ -168,9 +162,8 @@ class CategoricalModel(Model):
         .. todo::
             Maybe could be modified with weights to support baum welch?
         """
-        counts = X.bincount(minlength=self.logits.shape[0]).float()
-        prob = (counts + self.prior) / (counts.sum() + self.prior.sum())
-        self.logits = prob.log()
+        counts = X.bincount(minlength=self.probs.shape[0]).float()
+        self.probs = (counts + self.prior) / (counts.sum() + self.prior.sum())
 
 
 class DiagNormalModel(Model):

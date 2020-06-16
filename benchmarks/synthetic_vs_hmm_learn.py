@@ -3,14 +3,12 @@ import torch
 from functools import partial
 
 from matplotlib import pyplot as plt
-from matplotlib.patches import Ellipse
 
 from hmmlearn.hmm import GaussianHMM
 
 from torchmm.hmm import HiddenMarkovModel
 from torchmm.base import DiagNormalModel
 from torchmm.utils import kmeans_init
-from torchmm.utils import timefun
 
 
 GaussianHMM = partial(GaussianHMM,
@@ -26,7 +24,7 @@ GaussianHMM = partial(GaussianHMM,
                       )
 
 
-def fit_hmm_learn(seqs, n_states):
+def fit_hmm_learn(seqs, n_states, axis):
     """
     Seqs is a list of numpy vectors
     """
@@ -36,112 +34,91 @@ def fit_hmm_learn(seqs, n_states):
         return float('inf'), float('-inf'), None, None
     # assert len(samples) >= n_states
     hmm = GaussianHMM(n_components=n_states)
-
-    @timefun
-    def fit():
-        hmm.fit(samples, lengths)
-
-    fit()
+    hmm.fit(samples, lengths)
 
     ll = hmm.score(samples, lengths)
+    _, labels = hmm.decode(samples, lengths)
 
-    print("Number of states = %i" % hmm.n_components)
-    print()
-    print("Start Probabilities")
-    print(np.array2string(hmm.startprob_, max_line_width=np.inf))
-    print()
-    print("Transition Probabilities")
-    print(np.array2string(hmm.transmat_, max_line_width=np.inf))
-    print()
-    print("Emmission Means")
-    print(np.array2string(hmm.means_, max_line_width=np.inf))
-    print()
-    print("Emmission Covariances")
-    print(np.array2string(hmm.covars_, max_line_width=np.inf))
-    print()
+    axis.set_title("HMM Learn (ll=%0.2f)" % ll)
+    # ax2.plot(means[:, 0], means[:, 1], 'ro')
+    # ax2.plot(X[:, :, 0], X[:, :, 1], 'bo')
 
-    means = hmm.means_
-    print('covars shape')
-    print(hmm.covars_.shape)
-
-    var = [np.diag(c) for c in hmm.covars_]
-    std = np.sqrt(np.stack(var))
-    print(std)
-
-    fig2, ax2 = plt.subplots()
-    ax2.set_title("HMM Learn (ll=%0.2f)" % ll)
-    ax2.plot(means[:, 0], means[:, 1], 'ro')
-    ax2.plot(X[:, :, 0], X[:, :, 1], 'bo')
-
-    for i in range(std.shape[0]):
-        ellipse = Ellipse(means[i], width=(
-            2 * std[i, 0]), height=(2 * std[i, 1]), edgecolor="red")
-        ax2.add_patch(ellipse)
+    possible_colors = ['orange', 'blue', 'green']
+    colors = [possible_colors[e] for e in labels]
+    axis.scatter(seqs[:100, :, 0], seqs[:100, :, 1], color=colors[:100],
+                 marker='^')
+    axis.scatter(seqs[100:200, :, 0], seqs[100:200, :, 1],
+                 color=colors[100:200], marker='o')
+    axis.scatter(seqs[200:, :, 0], seqs[200:, :, 1], color=colors[200:],
+                 marker='s')
 
 
-def fit_torchmm(seqs, n_states):
+def fit_with_random_restarts(seqs, n_states, restarts=10):
+    best_ll = float('-inf')
+    best_hmm = None
+
+    for _ in range(restarts):
+        T0 = torch.zeros(n_states).softmax(0)
+        # T = torch.zeros((n_states, n_states)).softmax(1)
+
+        # T0 = torch.zeros(n_states).normal_().softmax(0)
+        T = torch.zeros((n_states, n_states)).normal_().softmax(1)
+
+        centroids = kmeans_init(X.squeeze(), n_states)
+
+        states = []
+        for s_idx in range(n_states):
+            precisions = torch.ones(2)
+            states.append(DiagNormalModel(
+                centroids[s_idx], precisions,
+                # prec_alpha_prior=0.0001 * torch.ones(2),
+                # prec_beta_prior=0.0001 * torch.ones(2),
+                # n0=torch.tensor(0.0001)
+            ))
+
+        hmm = HiddenMarkovModel(states, T0=T0, T=T)
+        # hmm.fit(seqs)
+
+        ll = hmm.log_prob(X) + hmm.log_parameters_prob()
+
+        if ll > best_ll:
+            best_ll = ll
+            best_hmm = hmm
+
+        print('ll', ll)
+
+    print('best_ll', best_ll)
+    return best_hmm
+
+
+def fit_torchmm(seqs, n_states, axis):
     """
     Seqs is a tensor
     """
-    T0 = torch.zeros(n_states).softmax(0)
-    T = torch.zeros((n_states, n_states)).softmax(1)
-
-    centroids = kmeans_init(X.squeeze(), n_states)
-
-    states = []
-    for s_idx in range(n_states):
-        precisions = torch.ones(2)
-        states.append(DiagNormalModel(centroids[s_idx], precisions))
-
-    hmm = HiddenMarkovModel(states, T0=T0, T=T)
-
-    @timefun
-    def fit():
-        hmm.fit(X)
-
-    fit()
-    score = hmm.log_prob(X)  # + hmm.log_parameters_prob()
+    hmm = fit_with_random_restarts(seqs, n_states)
+    score = hmm.log_prob(seqs) + hmm.log_parameters_prob()
+    labels = hmm.decode(seqs)
     print('ll', score)
-    print('ll (no prior)', hmm.log_prob(X))
+    print('ll (no prior)', hmm.log_prob(seqs))
 
-    print("Pi Matrix: ")
-    print(hmm.T0)
-
-    print("Transition Matrix: ")
-    print(hmm.T)
-    # assert np.allclose(transition.exp().data.numpy(), True_T, atol=0.1)
-    print()
-    print("Emission Matrix: ")
-    for s in hmm.states:
-        print("Means")
-        print(list(s.parameters())[0])
-
-        print("Variance")
-        print(1/list(s.parameters())[1])
-
-    means = torch.stack([list(s.parameters())[0] for s in states])
-    means = means.detach().numpy()
-    precs = torch.stack([list(s.parameters())[1] for s in states])
-    # precs = precs.detach().numpy()
-    std = (1/precs.sqrt()).detach().numpy()
-    print('std', std)
-
-    fig1, ax1 = plt.subplots()
-    ax1.set_title("Torchmm (ll=%0.2f)" % score)
-    ax1.plot(means[:, 0], means[:, 1], 'ro')
-    ax1.plot(X[:, :, 0], X[:, :, 1], 'bo')
-
-    for i in range(precs.shape[0]):
-        ellipse = Ellipse(means[i], width=(
-            2 * std[i, 0]), height=(2 * std[i, 1]), edgecolor="red")
-        ax1.add_patch(ellipse)
+    axis.set_title("Torchmm (ll=%0.2f)" % score)
+    possible_colors = ['orange', 'blue', 'green']
+    colors = [possible_colors[e[0]] for e in labels[0]]
+    axis.scatter(seqs[:100, :, 0], seqs[:100, :, 1], color=colors[:100],
+                 marker='^')
+    axis.scatter(seqs[100:200, :, 0], seqs[100:200, :, 1],
+                 color=colors[100:200], marker='o')
+    axis.scatter(seqs[200:, :, 0], seqs[200:, :, 1], color=colors[200:],
+                 marker='s')
 
 
 if __name__ == "__main__":
     X = torch.zeros((100, 2)).float()
     X.normal_(0, 2)
     Y = torch.zeros((100, 2)).float()
-    Y.normal_(5, 2)
+    Y.normal_(1, 2)
+    Y = torch.zeros((100, 2)).float()
+    Y.normal_(2, 2)
     X = torch.cat((X, Y))
 
     X = X.unsqueeze(1)
@@ -150,7 +127,9 @@ if __name__ == "__main__":
 
     n_states = 2
 
-    fit_hmm_learn(X_np, n_states)
-    fit_torchmm(X, n_states)
+    f, (ax1, ax2) = plt.subplots(1, 2)
+
+    fit_hmm_learn(X_np, n_states, axis=ax1)
+    fit_torchmm(X, n_states, axis=ax2)
 
     plt.show()

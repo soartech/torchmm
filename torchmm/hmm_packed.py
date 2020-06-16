@@ -1,10 +1,12 @@
 import torch
 
-from torchmm.hmm import HiddenMarkovModel
-from torchmm.base import CategoricalModel
 from torch.nn.utils.rnn import PackedSequence
 from torch.nn.utils.rnn import pad_packed_sequence
 from torch.nn.utils.rnn import pack_padded_sequence
+
+from torchmm.hmm import HiddenMarkovModel
+from torchmm.base import CategoricalModel
+from torchmm.utils import unpack_list
 
 
 class HiddenMarkovModel(HiddenMarkovModel):
@@ -30,8 +32,6 @@ class HiddenMarkovModel(HiddenMarkovModel):
         :returns: Two packed sequence tensors. The first contains the
             observations and the second contains state labels.
         """
-        self.update_log_params()
-
         test_sample = self.states[0].sample()
         shape = [n_seq, n_obs] + list(test_sample.shape)[1:]
         obs = torch.zeros(shape, device=self.device).type(test_sample.type())
@@ -87,8 +87,6 @@ class HiddenMarkovModel(HiddenMarkovModel):
         :returns: tensor with shape N x S, where N is number of sequences and S
             is the number of states.
         """
-        self.update_log_params()
-
         self.forward_ll = torch.zeros([X.data.shape[0],
                                        len(self.states)],
                                       device=self.device).float()
@@ -163,7 +161,6 @@ class HiddenMarkovModel(HiddenMarkovModel):
         :returns: two packed sequence tensors. The first contains state labels,
             the second contains the previous state label (i.e., the path).
         """
-        self.update_log_params()
         self._init_viterbi(X)
         state_seq, path_ll = self._viterbi_inference(X)
 
@@ -191,7 +188,6 @@ class HiddenMarkovModel(HiddenMarkovModel):
         :type X: packed sequence
         :returns: a packed sequence tensors.
         """
-        self.update_log_params()
         self._init_forw_back(X)
         self.obs_ll_full = self._emission_ll(X)
         self._forward_backward_inference(X)
@@ -321,19 +317,20 @@ class HiddenMarkovModel(HiddenMarkovModel):
         hard state assignments it updates all the parameters using maximum
         likelihood or maximum a posteri if the respective models have priors.
         """
-        self.update_log_params()
-        self.ll_history.append(self.log_prob(X))
+        self.ll_history.append(self.log_prob(X) + self.log_parameters_prob())
         states, _ = self.decode(X)
 
         # start prob
         s_counts = states.data[0:states.batch_sizes[0]].bincount(
             minlength=len(self.states)).float()
         # s_counts = states[:self.batch_sizes[0]].bincount(minlength=self.S)
-        self.logit_T0 = torch.log((s_counts + self.T0_prior) /
-                                  (s_counts.sum() + self.T0_prior.sum()))
+        self.log_T0 = torch.log((s_counts + self.T0_prior) /
+                                (s_counts.sum() + self.T0_prior.sum()))
 
         # transition
         t_counts = torch.zeros_like(self.log_T).float()
+
+        M = self.log_T.shape[0]
 
         idx = 0
         for step, prev_size in enumerate(self.batch_sizes[:-1]):
@@ -341,13 +338,17 @@ class HiddenMarkovModel(HiddenMarkovModel):
             start = idx
             mid = start + prev_size
             end = mid + next_size
-            t_counts[states.data[start:start+next_size],
-                     states.data[mid:end]] += 1
+            # t_counts[states.data[start:start+next_size],
+            #          states.data[mid:end]] += 1
+            pairs = (states.data[start:start+next_size] * M +
+                     states.data[mid:end]).bincount(minlength=M*M).float()
+            t_counts += pairs.reshape((M, M))
+
             idx = mid
 
-        self.logit_T = torch.log((t_counts + self.T_prior) /
-                                 (t_counts.sum(1).view(-1, 1) +
-                                  self.T_prior.sum(1).view(-1, 1)))
+        self.log_T = torch.log((t_counts + self.T_prior) /
+                               (t_counts.sum(1).view(-1, 1) +
+                                self.T_prior.sum(1).view(-1, 1)))
 
         # emission
         self._update_emissions_viterbi_training(states.data, X.data)
@@ -380,38 +381,43 @@ class HiddenMarkovModel(HiddenMarkovModel):
         for i in range(max_steps):
             self._viterbi_training_step(X)
             if self.converged:
-                print('converged at step {}'.format(i))
+                print('converged at step %i' % i)
                 break
 
         # print('HISTORY!')
         # print(self.ll_history)
+
         return self.converged
 
 
 if __name__ == "__main__":
-    T0 = torch.tensor([0.75, 0.25])
-    T = torch.tensor([[0.85, 0.15],
-                      [0.12, 0.88]])
-    s1_orig = torch.tensor([0.99, 0.01]).log()
-    s2_orig = torch.tensor([0.05, 0.95]).log()
-    s1 = CategoricalModel(logits=s1_orig)
-    s2 = CategoricalModel(logits=s2_orig)
+    T0 = torch.tensor([0.98, 0.02])
+    T = torch.tensor([[0.9, 0.1],
+                      [0.09, 0.91]])
+    s1_orig = torch.tensor([0.99, 0.01])
+    s2_orig = torch.tensor([0.02, 0.98])
+    s1 = CategoricalModel(probs=s1_orig)
+    s2 = CategoricalModel(probs=s2_orig)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
-    obs_seq, states = model.sample(50, 100)
+    obs_seq, states = model.sample(3000, 30)
 
-    print("First 50 Obersvations:  ", obs_seq[0, :50])
-    print("First 5 Hidden States: ", states[0, :5])
+    obs_seq_unpacked = unpack_list(obs_seq)
+    print(torch.stack(obs_seq_unpacked))
+    states_unpacked = unpack_list(states)
+
+    print("First 50 Obersvations of seq 0:  ", obs_seq_unpacked[0][:50])
+    print("First 5 Hidden States of seq 0: ", states_unpacked[0][:5])
 
     T0 = torch.tensor([0.5, 0.5])
     T = torch.tensor([[0.6, 0.4],
                       [0.5, 0.5]])
-    s1_orig = torch.tensor([0.6, 0.4]).log()
-    s2_orig = torch.tensor([0.5, 0.5]).log()
-    s1 = CategoricalModel(logits=s1_orig)
-    s2 = CategoricalModel(logits=s2_orig)
+    s1_orig = torch.tensor([0.6, 0.4])
+    s2_orig = torch.tensor([0.5, 0.5])
+    s1 = CategoricalModel(probs=s1_orig)
+    s2 = CategoricalModel(probs=s2_orig)
     model = HiddenMarkovModel([s1, s2], T0=T0, T=T)
 
-    converge = model.fit(obs_seq, max_steps=500, epsilon=1e-2, alg="autograd")
+    converge = model.fit(obs_seq, max_steps=500, epsilon=1e-2)
 
     # Not enough samples (only 1) to test
     # assert np.allclose(trans0.data.numpy(), True_pi)
@@ -424,7 +430,8 @@ if __name__ == "__main__":
     print()
     print("Emission Matrix: ")
     for s in model.states:
-        print([p.softmax(0) for p in s.parameters()])
+        print([p for p in s.parameters()])
+        # print([p.softmax(0) for p in s.parameters()])
     # assert np.allclose(emission.exp().data.numpy(), True_E, atol=0.1)
     print()
     print("Reached Convergence: ")
@@ -432,14 +439,16 @@ if __name__ == "__main__":
 
     states_seq, _ = model.decode(obs_seq)
 
+    states_seq_unpacked = unpack_list(states_seq)
+
     # state_summary = np.array([model.prob_state_1[i].cpu().numpy() for i in
     #                           range(len(model.prob_state_1))])
 
     # pred = (1 - state_summary[-2]) > 0.5
     # pred = torch.cat(states_seq, 0).data.numpy()
     # true = np.concatenate(states, 0)
-    pred = states_seq
-    true = states
+    pred = torch.stack(unpack_list(states_seq))
+    true = torch.stack(states_unpacked)
     accuracy = torch.mean(torch.abs(pred - true).float())
     print("Accuracy: ", accuracy)
     assert accuracy >= 0.9 or accuracy <= 0.1
