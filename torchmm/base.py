@@ -86,7 +86,7 @@ class CategoricalModel(Model):
     """
 
     def __init__(self, probs: Union[torch.Tensor, int],
-                 prior: Union[float, int, torch.Tensor] = 1,
+                 prior: Union[float, torch.Tensor] = 1,
                  device: str = "cpu") -> None:
         """
         Creates a categorical model that emits values from 0 to n, where n is
@@ -100,7 +100,7 @@ class CategoricalModel(Model):
             int), which gets converted to a tensor with uniform probabilites.
         :param prior: a tensor of Dirchlet priors used during model fitting,
             each value essentially counts as having observed at least one prior
-            training datapoint with that value. An int/float can also be
+            training datapoint with that value. A float can also be
             provided, which gets converted into a tensor with the provided
             value for each entry. If no prior is provided it defaults to a
             tensor of ones (add one laplace smoothing).
@@ -238,79 +238,78 @@ class DiagNormalModel(Model):
     values. This distribution accepts a means_prior, which is the prior for the
     mean value. It also accepts prec_alpha and prec_beta priors, these are the
     alpha and beta parameters for a gamma prior over the precision of the
-    model.
+    model. Note, the mean and precisions are not independent, the Normal-Gamma
+    defines a joint distribution over both.
     """
 
-    def __init__(self, means, precs, means_prior=None, prec_alpha_prior=None,
-                 prec_beta_prior=None, n0=None, device="cpu"):
+    def __init__(self, means: Union[torch.Tensor, int],
+                 precs: Union[torch.Tensor, float] = 1,
+                 means_prior: Union[torch.Tensor, float] = 1,
+                 n0: int = 1,
+                 prec_alpha_prior: Union[torch.Tensor, float] = 1,
+                 prec_beta_prior: Union[torch.Tensor, float] = 1,
+                 device: str = "cpu") -> None:
         """
         Accepts a set of mean and precisions for each dimension. Means and
         precs must have the same length, corresponding to the number of
         features in each observation.
 
-        The model can accepts a means prior, which imposes a normal prior over
-        the estimated means. This prior has the same length as the means/precs
-        (a separate prior can be specified for each feature). If no means
-        prior is specified, it uses a default prior of 0 (i.e., it pulls the
-        estimated means to be closer to zero).
-
-        The model can accept alpha and beta parameters (from a Gamma
-        Distribution) that impose a prior on the precision estimates. Both
-        alpha and beta must have the same length as the means/precs (a separate
-        prior can be specified for each feature). If none are provided, then
-        the model assumes the alphas and betas are 1, which yields a gamma
-        prior with a mean of 1 and std of 1 over the precision values.
-
-        The model also accepts an n0 value, which specifies how strongly to
-        weight the means priors. By default this value is 1, which roughly
-        corresponds to having observed 1 previous datapoint with feature values
-        equal to the means prior.
-
-        Finally, it is worth mentioning that the means, alpha, beta, and n0
-        values jointly define a normal-gamma prior, so they are not independent
-        of each other. For example, changing the means or n0 value will impact
-        how strongly the alpha and beta values affect the precision estimates.
-
-        Additionally, a pytorch device can be provided and the model will store
-        the tensors on this device.
+        :param means: A tensor of the means for each dimension of the gaussian.
+            If an int is provided, then a tensor of zeros will be used that has
+            length equal to the provided value.
+        :param precs: A tensor of precisions for each dimension of the
+            gaussian. If a float is provided, then it gets converted to a
+            tensor of floats with the provided value. Defaults to 1.
+        :param means_prior: A tensor of priors for the mean of each dimension.
+            If a float is provided, then it gets converted to a tensor of
+            floats with the provided value. Defaults to 0.
+        :param n0: An integer representing the strength of the means prior, it
+            roughly correspons to the number of data points that have been
+            observed with the value equal to means_prior during model fitting.
+            Defaults to 1.
+        :param prec_alpha_prior: A tensor of alpha priors for the prec of each
+            dimension. If a float is provided, then it gets converted to a
+            tensor of floats with the provided value. Defaults to 1.
+        :param prec_beta_prior: A tensor of beta priors for the prec of each
+            dimension. If a float is provided, then it gets converted to a
+            tensor of floats with the provided value. Defaults to 1.
+        :param device: a string representing the desired pytorch device,
+            defaults to cpu.
         """
-        if not isinstance(means, torch.Tensor):
-            raise ValueError("Means must be a tensor.")
-        if not isinstance(precs, torch.Tensor):
-            raise ValueError("Covs must be a tensor.")
+        if isinstance(means, int):
+            means = torch.zeros(means)
+        elif not isinstance(means, torch.Tensor):
+            raise ValueError("Means must be an int or a tensor.")
+
+        if isinstance(precs, (int, float)):
+            precs = precs * torch.ones_like(means)
+        elif not isinstance(precs, torch.Tensor):
+            raise ValueError("precs must be a tensor or float.")
+
         if means.shape != precs.shape:
-            raise ValueError("Means and covs must have same shape!")
+            raise ValueError("means and precs must have same shape!")
 
         self.means = means.float()
         self.precs = precs.float()
 
-        if means_prior is None:
-            self.means_prior = torch.zeros_like(self.means)
-        elif isinstance(means_prior, (float, int)):
-            self.means_prior = means_prior * torch.ones_like(
-                self.means).float()
+        if isinstance(means_prior, (float, int)):
+            self.means_prior = means_prior * torch.ones_like(self.means)
         else:
             self.means_prior = means_prior.float()
 
-        if prec_alpha_prior is None:
-            self.prec_alpha_prior = torch.ones_like(self.precs)
-        elif isinstance(prec_alpha_prior, (float, int)):
+        if isinstance(prec_alpha_prior, (float, int)):
             self.prec_alpha_prior = prec_alpha_prior * torch.ones_like(
-                self.precs).float()
+                self.precs)
         else:
             self.prec_alpha_prior = prec_alpha_prior.float()
 
-        if prec_beta_prior is None:
-            self.prec_beta_prior = torch.ones_like(self.precs)
-        elif isinstance(prec_beta_prior, (float, int)):
+        if isinstance(prec_beta_prior, (float, int)):
             self.prec_beta_prior = prec_beta_prior * torch.ones_like(
                 self.precs).float()
         else:
             self.prec_beta_prior = prec_beta_prior.float()
 
-        if n0 is None:
-            self.n0 = torch.tensor(1.)
-        elif isinstance(n0, (float, int)):
+        if isinstance(n0, (float, int)):
             self.n0 = n0 * torch.tensor(1.)
         else:
             self.n0 = n0.float()
