@@ -2,6 +2,11 @@
 This module includes the base Model class used throughout TorCHmm. It also
 includes some very basic models for discrete and continuous emissions.
 """
+from typing import Union
+from typing import Tuple
+from typing import List
+from typing import Optional
+
 import torch
 from torch.distributions import Categorical
 from torch.distributions.multivariate_normal import MultivariateNormal
@@ -78,13 +83,18 @@ class CategoricalModel(Model):
     the HMM. Uses a categorical distribution and a Dirchlet prior.
     """
 
-    def __init__(self, probs, prior=None, device="cpu"):
+    def __init__(self, probs: torch.Tensor,
+                 prior: Optional[Union[float, int, torch.Tensor]] = None,
+                 device: str = "cpu") -> None:
         """
         Accepts a set of probabilites for emissions from the model. This also
         accepts a Dirichlet, or counts, prior.
 
+        .. todo:: support option to just specify number of emissions and have
+            it default to uniform probability.
+
         The prior is either a tensor with the same shape as probs or a
-        float/int, which gets expanded into a tensore with the provided
+        float/int, which gets expanded into a tensor with the provided
         float/int value for every entry. If no prior is provided, then it
         defaults to a vector of 1's (i.e., add-one laplace smoothing).
 
@@ -107,7 +117,7 @@ class CategoricalModel(Model):
 
         self.to(device)
 
-    def to(self, device):
+    def to(self, device: str) -> None:
         """
         Moves the model's parameters / tensors to the specified pytorch device.
         """
@@ -115,20 +125,21 @@ class CategoricalModel(Model):
         self.prior = self.prior.to(device)
         self.device = device
 
-    def log_parameters_prob(self):
+    def log_parameters_prob(self) -> float:
         """
         Returns the loglikelihood of the parameter estimates given the
         Dirichlet prior.
         """
         return Dirichlet(self.prior).log_prob(self.probs)
 
-    def init_params_random(self):
+    def init_params_random(self) -> None:
         """
-        Randomly samples the probs/logits using the Dirchlet prior.
+        Randomly samples and sets model parameters using the Dirchlet prior.
         """
         self.probs = Dirichlet(self.prior).sample()
 
-    def sample(self, sample_shape=None):
+    def sample(self,
+               sample_shape: Optional[Tuple[int]] = None) -> torch.Tensor:
         """
         Draws samples from this model and returns them in the specified shape.
         If not sample shape is provided, then a single sample is returned.
@@ -137,35 +148,40 @@ class CategoricalModel(Model):
             sample_shape = torch.tensor([1], device=self.device)
         return Categorical(probs=self.probs).sample(sample_shape)
 
-    def log_prob(self, value):
+    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
         """
         Returns the loglikelihood of the provided values given the current
         categorical distribution defined by the probs.
 
-        Note that value can have an arbitrary shape and the returned value will
-        have the same shape.
+        .. todo:: verify/describe dimensions of input.
+
+        The first dimension of the value is for the number of values, the
+        second dimension should have length 1 (single categorical emissions).
+        The values should be integers.
         """
         return Categorical(probs=self.probs).log_prob(value)
 
-    def parameters(self):
+    def parameters(self) -> List[Union[torch.Tensor, list]]:
         """
         Returns the model parameters for optimization.
         """
         return [self.probs.clone().detach()]
 
-    def set_parameters(self, params):
+    def set_parameters(self, params: List[Union[torch.Tensor, list]]) -> None:
         """
         Sets the params for the model to the first element of the provided
         params.
         """
         self.probs = params[0]
 
-    def fit(self, X):
+    def fit(self, X: torch.Tensor) -> None:
         """
         Update the logit vector based on the observed counts using maximum
         likelihood estimation; i.e., it computes the probabilities that
         maximize the data (the mean of the values), converts to and sets the
         corresponding logits.
+
+        .. todo:: Describe dimensions of intput
 
         This model also incorporates the direchlet prior into updates, mainly
         it adds the pseudocounts from the dirchelet prior to the actual counts.
