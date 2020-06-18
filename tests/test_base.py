@@ -79,6 +79,8 @@ def test_diagnomralmodel_fit_no_data():
     assert not torch.isnan(m.means).any()
     assert not torch.isnan(m.precs).any()
 
+    print(X)
+    print(m.means)
     assert torch.isclose(m.means, torch.tensor([0.])).all()
     assert torch.isclose(m.precs, torch.tensor([1.])).all()
 

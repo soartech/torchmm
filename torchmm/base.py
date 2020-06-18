@@ -244,7 +244,7 @@ class DiagNormalModel(Model):
 
     def __init__(self, means: Union[torch.Tensor, int],
                  precs: Union[torch.Tensor, float] = 1,
-                 means_prior: Union[torch.Tensor, float] = 1,
+                 means_prior: Union[torch.Tensor, float] = 0,
                  n0: int = 1,
                  prec_alpha_prior: Union[torch.Tensor, float] = 1,
                  prec_beta_prior: Union[torch.Tensor, float] = 1,
