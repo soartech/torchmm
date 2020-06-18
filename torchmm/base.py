@@ -104,6 +104,11 @@ class CategoricalModel(Model):
             tensor of ones (add one laplace smoothing).
         :param device: a string representing the desired pytorch device,
             defaults to cpu.
+
+        >>> model_with_unif_prob = CategoricalModel(3)
+        >>> model_with_custom_prob = CategoricalModel(torch.tensor([0.3, 0.7])
+        >>> model_with_prior = CategoricalModel(2, prior=torch.tensor([2, 9])
+
         """
         if isinstance(probs, int):
             probs = torch.ones(probs) / probs
@@ -135,10 +140,13 @@ class CategoricalModel(Model):
         self.prior = self.prior.to(device)
         self.device = device
 
-    def log_parameters_prob(self) -> float:
+    def log_parameters_prob(self) -> torch.Tensor:
         """
         Returns the loglikelihood of the current parameters given the Dirichlet
         prior.
+
+        >>> CategoricalModel(3).log_parameters_prob()
+        tensor(0.6931)
         """
         return Dirichlet(self.prior).log_prob(self.probs)
 
@@ -151,8 +159,14 @@ class CategoricalModel(Model):
     def sample(self,
                sample_shape: Optional[Tuple[int]] = None) -> torch.Tensor:
         """
-        Draws samples from this model and returns them in the specified shape.
-        If no sample shape is provided, then a single sample is returned.
+        Draws samples from this model and returns them in a tensor with the
+        specified shape.  If no shape is provided, then a single sample is
+        returned.
+
+        >>> CategoricalModel(3).sample((3, 5))
+        tensor([[0, 0, 2, 0, 2],
+                [1, 2, 0, 1, 2],
+                [1, 0, 1, 1, 0]])
         """
         if sample_shape is None:
             sample_shape = torch.tensor([1], device=self.device)
@@ -161,40 +175,51 @@ class CategoricalModel(Model):
     def log_prob(self, value: torch.Tensor) -> torch.Tensor:
         """
         Returns the loglikelihood of the provided values given the current
-        categorical distribution defined by the probs.
+        categorical distribution defined by the probs. Returned tensor will
+        have same shape as input and will give the log_probability of each
+        value
 
-        .. todo:: verify/describe dimensions of input.
+        :param value: a tensor of possible emissions (int from 0 to n) or
+            arbitrary shape.
 
-        The first dimension of the value is for the number of values, the
-        second dimension should have length 1 (single categorical emissions).
-        The values should be integers.
+        >>> CategoricalModel(3).log_prob(torch.tensor([[0, 1, 2], [0, 0, 0]]))
+        tensor([[-1.0986, -1.0986, -1.0986],
+                [-1.0986, -1.0986, -1.0986]])
         """
         return Categorical(probs=self.probs).log_prob(value)
 
-    def parameters(self) -> List[Union[torch.Tensor, list]]:
+    def parameters(self) -> List[Union[torch.Tensor]]:
         """
-        Returns the model parameters for optimization.
+        Returns the model parameters for optimization. In this case a list
+        containing a clone of the probs tensor is returned.
+
+        >>> CategoricalModel(3).parameters()
+        [tensor([0.3333, 0.3333, 0.3333])]
         """
         return [self.probs.clone().detach()]
 
     def set_parameters(self, params: List[Union[torch.Tensor, list]]) -> None:
         """
         Sets the params for the model to the first element of the provided
-        params.
+        params (format matches that output by parameters()). Provided probs
+        must sum to 1.
+
+        >>> CategoricalModel(3).set_parameters([tensor([0.3, 0.5, 0.2])])
         """
-        self.probs = params[0]
+        probs = params[0]
+
+        if not torch.isclose(probs.sum(), torch.tensor(1.0)):
+            raise ValueError("Probs must sum to 1.")
+
+        self.probs = probs
 
     def fit(self, X: torch.Tensor) -> None:
         """
-        Update the logit vector based on the observed counts using maximum
-        likelihood estimation; i.e., it computes the probabilities that
-        maximize the data (the mean of the values), converts to and sets the
-        corresponding logits.
+        Update the probs based on the observed counts using maximum likelihood
+        estimation; i.e., it computes the probabilities that maximize the data,
+        which reduces to the counts / total.
 
-        .. todo:: Describe dimensions of intput
-
-        This model also incorporates the direchlet prior into updates, mainly
-        it adds the pseudocounts from the dirchelet prior to the actual counts.
+        :param X: a 1-D tensor of emissions.
         """
         counts = X.bincount(minlength=self.probs.shape[0]).float()
         self.probs = (counts + self.prior) / (counts.sum() + self.prior.sum())
