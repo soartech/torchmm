@@ -220,6 +220,8 @@ class CategoricalModel(Model):
         which reduces to the counts / total.
 
         :param X: a 1-D tensor of emissions.
+
+        >>> CategoricalModel(3).fit(torch.tensor([0, 0, 1, 1, 2, 0]))
         """
         counts = X.bincount(minlength=self.probs.shape[0]).float()
         self.probs = (counts + self.prior) / (counts.sum() + self.prior.sum())
