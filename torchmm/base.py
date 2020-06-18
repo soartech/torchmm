@@ -110,7 +110,6 @@ class CategoricalModel(Model):
         >>> model_with_unif_prob = CategoricalModel(3)
         >>> model_with_custom_prob = CategoricalModel(torch.tensor([0.3, 0.7])
         >>> model_with_prior = CategoricalModel(2, prior=torch.tensor([2, 9])
-
         """
         if isinstance(probs, int):
             probs = torch.ones(probs) / probs
@@ -177,7 +176,7 @@ class CategoricalModel(Model):
         Returns the loglikelihood of the provided values given the current
         categorical distribution defined by the probs. Returned tensor will
         have same shape as input and will give the log_probability of each
-        value
+        value. Note, this does not include any adjustment for the priors.
 
         :param value: a tensor of possible emissions (int from 0 to n) or
             arbitrary shape.
@@ -190,8 +189,8 @@ class CategoricalModel(Model):
 
     def parameters(self) -> List[Union[torch.Tensor]]:
         """
-        Returns the model parameters for optimization. In this case a list
-        containing a clone of the probs tensor is returned.
+        Returns the model parameters. In this case a list containing a clone of
+        the probs tensor is returned.
 
         >>> CategoricalModel(3).parameters()
         [tensor([0.3333, 0.3333, 0.3333])]
@@ -275,6 +274,9 @@ class DiagNormalModel(Model):
             tensor of floats with the provided value. Defaults to 1.
         :param device: a string representing the desired pytorch device,
             defaults to cpu.
+
+        >>> model_with_defaults = DiagNormalModel(2)
+        >>> model_custom_means = DiagNormalModel(torch.tensor([5., 2.]))
         """
         if isinstance(means, int):
             means = torch.zeros(means)
@@ -297,6 +299,11 @@ class DiagNormalModel(Model):
         else:
             self.means_prior = means_prior.float()
 
+        if isinstance(n0, (float, int)):
+            self.n0 = n0 * torch.tensor(1.)
+        else:
+            self.n0 = n0.float()
+
         if isinstance(prec_alpha_prior, (float, int)):
             self.prec_alpha_prior = prec_alpha_prior * torch.ones_like(
                 self.precs)
@@ -305,20 +312,17 @@ class DiagNormalModel(Model):
 
         if isinstance(prec_beta_prior, (float, int)):
             self.prec_beta_prior = prec_beta_prior * torch.ones_like(
-                self.precs).float()
+                self.precs)
         else:
             self.prec_beta_prior = prec_beta_prior.float()
 
-        if isinstance(n0, (float, int)):
-            self.n0 = n0 * torch.tensor(1.)
-        else:
-            self.n0 = n0.float()
-
         self.to(device)
 
-    def to(self, device):
+    def to(self, device) -> None:
         """
         Moves the model's parameters / tensors to the specified pytorch device.
+
+        :param device: a string representing the desired pytorch device.
         """
         self.means = self.means.to(device)
         self.precs = self.precs.to(device)
@@ -330,10 +334,9 @@ class DiagNormalModel(Model):
 
         self.device = device
 
-    def init_params_random(self):
+    def init_params_random(self) -> None:
         """
-        Sample a random parameter configuration from the normal-gamma priors
-        model.
+        Sample and set parameter values from the normal-gamma priors model.
 
         For more details on sampling from a normal-gamma distribution see:
             - https://people.eecs.berkeley.edu/~jordan/courses/260-spring10/lectures/lecture5.pdf # noqa: E501
@@ -350,9 +353,33 @@ class DiagNormalModel(Model):
                                                        ).diag())
         self.means = means_m.sample()
 
-    def sample(self, sample_shape=None):
+    def sample(self,
+               sample_shape: Optional[Tuple[int]] = None) -> torch.Tensor:
         """
-        Draws n samples from this model and return them in the specified shape.
+        Draws samples from this model and returns them in a tensor with the
+        specified shape. If no shape is provided, then a single sample is
+        returned. Note, the returned tensor's final dimension will correspond
+        to the number of dimensions in the gaussian model.
+
+        >>> DiagNormalModel(2).sample()
+        tensor([[-1.2747,  0.9839]])
+
+        >>> DiagNormalModel(2).sample((3, 5))
+        tensor([[[ 0.5798,  2.1585],
+                 [ 0.6801,  1.2888],
+                 [-0.5988, -1.0076],
+                 [-0.0123, -0.0339],
+                 [-0.1755,  0.4791]],
+                [[-0.5034,  0.6856],
+                 [ 0.2872, -0.5782],
+                 [ 0.5888,  1.0531],
+                 [ 1.0995,  0.3306],
+                 [-0.2562, -0.4988]],
+                [[ 1.0225, -0.6346],
+                 [ 0.1509,  0.4840],
+                 [ 2.1670, -0.6165],
+                 [ 1.5515, -0.8755],
+                 [-0.5233, -0.2712]]])
         """
         if sample_shape is None:
             sample_shape = torch.tensor([1], device=self.device)
@@ -360,7 +387,7 @@ class DiagNormalModel(Model):
             loc=self.means,
             precision_matrix=self.precs.abs().diag()).sample(sample_shape)
 
-    def log_parameters_prob(self):
+    def log_parameters_prob(self) -> torch.Tensor:
         """
         Returns the log-likelihood of the parameter estimates given the
         normal-gamma prior.
@@ -368,6 +395,9 @@ class DiagNormalModel(Model):
         For more details computing log-likelihood under this prior see:
             - https://people.eecs.berkeley.edu/~jordan/courses/260-spring10/lectures/lecture5.pdf # noqa: E501
             - https://www.cs.ubc.ca/~murphyk/Papers/bayesGauss.pdf
+
+        >>> DiagNormalModel(2).log_parameters_prob()
+        tensor(-3.8379)
         """
         ll = Gamma(self.prec_alpha_prior,
                    self.prec_beta_prior).log_prob(self.precs.abs()).sum()
@@ -377,36 +407,51 @@ class DiagNormalModel(Model):
                 self.n0 * self.precs.abs()).diag()).log_prob(self.means)
         return ll
 
-    def log_prob(self, value):
+    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
         """
         Returns the loglikelihood of the provided values given the current
-        parameters.
+        gaussian distribution defined by the model parameters. Returned tensor
+        will have same shape as input minus the final dimension, which
+        corresponds to the number of gaussian features. Each entry is the
+        log_probability of each emission. Note, this does not include any
+        adjustment for the priors.
 
-        Note, this does not include any adjustment for the priors.
+        :param value: A tensor of possible emissions of arbitrary shape; the
+            last dimension corresponds to the number of features in the
+            Gaussian.
+
+        >>> DiagNormalModel(2).log_prob(torch.tensor([[-1.2,  0.9],
+        >>>                                           [-2.3, 1.1]]))
+        tensor([-2.9629, -5.0879])
         """
         return MultivariateNormal(
             loc=self.means,
             precision_matrix=self.precs.abs().diag()
         ).log_prob(value)
 
-    def parameters(self):
+    def parameters(self) -> List[Union[torch.Tensor]]:
         """
-        Returns the model parameters for optimization.
+        Returns the model parameters. In this case a list containing a clone of
+        the mean and prec tensors.
+
+        >>> DiagNormalModel(2).parameters()
+        [tensor([0., 0.]), tensor([1., 1.])]
         """
         return [self.means.clone().detach(), self.precs.clone().detach()]
 
-    def set_parameters(self, params):
+    def set_parameters(self, params: List[Union[torch.Tensor, list]]) -> None:
         """
-        Sets the model parameters, the first parameter provided is the means
-        and the second is the precisions.
+        Sets the params for the model (format matches that output by
+        parameters()). In this case a list containing the means and prec
+        tensors.
 
-        .. todo::
-            Currently not tested or used.
+        >>> DiagNormalModel(2).set_parameters([tensor([0., 0.]),
+        >>>                                    tensor([1., 1.])])
         """
         self.means = params[0]
         self.precs = params[1]
 
-    def fit(self, X):
+    def fit(self, X: torch.Tensor) -> None:
         """
         Update the means and precisions based on the provided observations
         using an Maximum a posteri (MAP) estimate; i.e., the maximum likelihood
@@ -420,6 +465,15 @@ class DiagNormalModel(Model):
 
         Note, if X is empty (no observations), then the means and precisions
         get sent entirely based on the priors.
+
+        :param X: a N x F tensor of emissions, where N is the number of
+        emissions and F is the number of features in the Gaussian.
+
+        >>> DiagNormalModel(2).fit(torch.tensor([[ 0.5798,  2.1585],
+        >>>                                      [ 0.6801,  1.2888],
+        >>>                                      [-0.5988, -1.0076],
+        >>>                                      [-0.0123, -0.0339],
+        >>>                                      [-0.1755,  0.4791]]))
         """
         if X.shape[1] != self.means.shape[0]:
             raise ValueError("Mismatch in number of features.")
