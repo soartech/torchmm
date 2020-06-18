@@ -86,7 +86,7 @@ class CategoricalModel(Model):
     """
 
     def __init__(self, probs: Union[torch.Tensor, int],
-                 prior: Optional[Union[float, int, torch.Tensor]] = None,
+                 prior: Union[float, int, torch.Tensor] = 1,
                  device: str = "cpu") -> None:
         """
         Creates a categorical model that emits values from 0 to n, where n is
@@ -98,9 +98,11 @@ class CategoricalModel(Model):
         :param probs: either a tensor describing the probability of each
             discrete emission (must sum to 1) or the number of emissions (an
             int), which gets converted to a tensor with uniform probabilites.
-        :param prior: the Dirchlet prior used during model fitting, each value
-            essentially counts as having observed at least one prior training
-            datapoint with that value. If no prior is provided it defaults to a
+        :param prior: a tensor of Dirchlet priors used during model fitting,
+            each value essentially counts as having observed at least one prior
+            training datapoint with that value. An int/float can also be
+            provided, which gets converted into a tensor with the provided
+            value for each entry. If no prior is provided it defaults to a
             tensor of ones (add one laplace smoothing).
         :param device: a string representing the desired pytorch device,
             defaults to cpu.
@@ -118,9 +120,7 @@ class CategoricalModel(Model):
 
         self.probs = probs.float()
 
-        if prior is None:
-            self.prior = torch.ones_like(self.probs)
-        elif isinstance(prior, (float, int)):
+        if isinstance(prior, (float, int)):
             self.prior = prior * torch.ones_like(self.probs).float()
         elif prior.shape == probs.shape:
             self.prior = prior.float()
