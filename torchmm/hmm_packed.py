@@ -16,6 +16,7 @@ from typing import Union
 from typing import Tuple
 from typing import Callable
 
+
 def kpp_rand(hmm, X):
     """
     Helper function for use in HiddenMarkovModel.fit(...). This method accepts
@@ -63,7 +64,8 @@ class HiddenMarkovModel(Model):
     this class and does some automatic data packing and unpacking.
     """
 
-    def __init__(self, states: int, T0: Tensor = None, T: Tensor = None, T0_prior: Tensor = None,
+    def __init__(self, states: List[Model], T0: Tensor = None, T: Tensor = None,
+                 T0_prior: Tensor = None,
                  T_prior: Tensor = None,
                  device: str = "cpu"):
         """
@@ -89,12 +91,19 @@ class HiddenMarkovModel(Model):
         Note, internally the model converts probabilities into
         log-probabilities to prevent underflows.
 
-        :param states: number of states (S) in the hmm
+        :param states: State-wise models from which emissions are sampled
         :param T0: 1xS tensor. Probability of starting in each state. Should sum to 1.
         :param T: SxS tensor. Probability of transitioning between states. Rows should sum to 1.
         :param T0_prior: 1xS tensor. Dirichlet prior (counts) for start probabilities
         :param T_prior: SxS tensor. Dirichlet prior (counts) for start probabilities
         :param device: Which hardware device to use for tensor calculations (probably 'cpu' or 'gpu')
+
+        >>> good_T0 = torch.tensor([1.0, 0.0])
+        >>> good_T = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
+        >>> good_E1 = CategoricalModel(probs=torch.tensor([1.0, 0.0]))
+        >>> good_E2 = CategoricalModel(probs=torch.tensor([0.0, 1.0]))
+        >>> HiddenMarkovModel([good_E1, good_E2], T0=good_T0, T=good_T)
+
         """
         for s in states:
             if not isinstance(s, Model):
@@ -363,7 +372,8 @@ class HiddenMarkovModel(Model):
 
         for t in range(T - 1, 0, -1):
             self.backward_ll[start[t - 1]:start[t - 1] +
-                                          self.batch_sizes[t]] = self._belief_prop_sum(
+                                          self.batch_sizes[
+                                              t]] = self._belief_prop_sum(
                 self.backward_ll[start[t]:end[t]] +
                 self.obs_ll_full[start[t]:end[t]])
 
@@ -374,7 +384,8 @@ class HiddenMarkovModel(Model):
                                 len(self.states)],
                                device=self.device).float())
 
-    def decode(self, X: PackedSequence) -> Tuple[PackedSequence, PackedSequence]:
+    def decode(self, X: PackedSequence) -> Tuple[
+        PackedSequence, PackedSequence]:
         """
         Find the most likely state sequences corresponding to each observation
         in X. Note the state assignments within a sequence are not independent
@@ -449,9 +460,12 @@ class HiddenMarkovModel(Model):
             self.log_T.unsqueeze(0).expand(scores.shape[0], -1, -1), 1)
         return s.squeeze(1)
 
-    def fit(self, X: PackedSequence, max_steps: int=500, epsilon: float=1e-3, randomize_first: bool=False,
-            restarts: int=10, rand_fun: Callable=None, **kwargs):
+    def fit(self, X: PackedSequence, max_steps: int = 500,
+            epsilon: float = 1e-3, randomize_first: bool = False,
+            restarts: int = 10, rand_fun: Callable = None, **kwargs) -> bool:
         """
+        todo:: the arguments relating to randomize seem a little confusing
+
         Learn new model parameters from X using hard expectation maximization
         (viterbi training).
 
@@ -476,14 +490,14 @@ class HiddenMarkovModel(Model):
         The model returns a flag specifying if the best fitting model (across
         the restarts) converged.
 
-        :param X: Sequences.
+        :param X: Sequences/observations
         :param max_steps: Maximum number of iterations to allow viterbi to run if it does not converge before then
-        :param epsilon:
-        :param randomize_first:
+        :param epsilon: Convergence criteria (log-likelihood delta)
+        :param randomize_first: Randomize on the first iteration (restart 0)
         :param restarts: Number of random restarts.
-        :param rand_func:
+        :param rand_func: Callable F(self, data) for custom randomization
         :param \**kwargs: arguments for self._viterbi_training
-        :returns:
+        :returns: Boolean indicating whether or not any of the restarts converged
         """
         best_params = None
         best_ll = float('-inf')
@@ -548,7 +562,8 @@ class HiddenMarkovModel(Model):
             state_prob = state_prob.gather(
                 1, state.unsqueeze(0).permute(1, 0)).squeeze(1)
             self.states_seq[start[step - 1]:start[step - 1] +
-                                            self.batch_sizes[step]] = state_prob
+                                            self.batch_sizes[
+                                                step]] = state_prob
 
             # since we're doing packed sequencing, we need to check if
             # any new sequences are showing up for earlier times.
