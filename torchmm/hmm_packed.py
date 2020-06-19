@@ -1,5 +1,5 @@
 import torch
-
+from torch import Tensor
 from torch.nn.utils.rnn import PackedSequence
 from torch.nn.utils.rnn import pad_packed_sequence
 from torch.nn.utils.rnn import pack_padded_sequence
@@ -11,7 +11,10 @@ from torchmm.base import CategoricalModel
 from torchmm.utils import unpack_list
 from torchmm.utils import kmeans_init
 from torchmm.utils import kmeans
-
+from typing import List
+from typing import Union
+from typing import Tuple
+from typing import Callable
 
 def kpp_rand(hmm, X):
     """
@@ -60,8 +63,9 @@ class HiddenMarkovModel(Model):
     this class and does some automatic data packing and unpacking.
     """
 
-    def __init__(self, states, T0=None, T=None, T0_prior=None, T_prior=None,
-                 device="cpu"):
+    def __init__(self, states: int, T0: Tensor = None, T: Tensor = None, T0_prior: Tensor = None,
+                 T_prior: Tensor = None,
+                 device: str = "cpu"):
         """
         Constructor for the HMM accepts.
 
@@ -84,6 +88,13 @@ class HiddenMarkovModel(Model):
 
         Note, internally the model converts probabilities into
         log-probabilities to prevent underflows.
+
+        :param states: number of states (S) in the hmm
+        :param T0: 1xS tensor. Probability of starting in each state. Should sum to 1.
+        :param T: SxS tensor. Probability of transitioning between states. Rows should sum to 1.
+        :param T0_prior: 1xS tensor. Dirichlet prior (counts) for start probabilities
+        :param T_prior: SxS tensor. Dirichlet prior (counts) for start probabilities
+        :param device: Which hardware device to use for tensor calculations (probably 'cpu' or 'gpu')
         """
         for s in states:
             if not isinstance(s, Model):
@@ -135,9 +146,11 @@ class HiddenMarkovModel(Model):
 
         self.to(device)
 
-    def to(self, device):
+    def to(self, device: str) -> None:
         """
         Moves the model's parameters / tensors to the specified pytorch device.
+
+        :param device: name of hardware device
         """
         self.device = device
         self.log_T0 = self.log_T0.to(device)
@@ -148,9 +161,9 @@ class HiddenMarkovModel(Model):
         for s in self.states:
             s.to(device)
 
-    def log_parameters_prob(self):
+    def log_parameters_prob(self) -> float:
         """
-        Computes the log probability of the parameters given priors.
+        :returns: log probability of the parameters given priors.
         """
         ll = Dirichlet(self.T0_prior).log_prob(self.T0)
         ll += Dirichlet(self.T_prior).log_prob(self.T).sum(0)
@@ -158,7 +171,7 @@ class HiddenMarkovModel(Model):
             ll += s.log_parameters_prob()
         return ll
 
-    def init_params_random(self):
+    def init_params_random(self) -> None:
         """
         Randomly sets the parameters of the model using the dirchlet priors.
         """
@@ -167,7 +180,7 @@ class HiddenMarkovModel(Model):
         for s in self.states:
             s.init_params_random()
 
-    def parameters(self):
+    def parameters(self) -> List[Tensor]:
         """
         Returns the set of parameters for optimization.
 
@@ -187,23 +200,23 @@ class HiddenMarkovModel(Model):
         self.log_T0 = params[0]
         self.log_T = params[1]
         for i, s in enumerate(self.states):
-            s.set_parameters(params[2+i])
+            s.set_parameters(params[2 + i])
 
     @property
-    def T0(self):
+    def T0(self) -> Tensor:
         """
-        Returns the start probabilites (convert from log-probs to probs).
+        :returns: start probabilites (converted from log-probs to probs).
         """
         return self.log_T0.exp()
 
     @property
-    def T(self):
+    def T(self) -> Tensor:
         """
-        Returns the transition probabilites (convert from log-probs to probs).
+        :returns: transition probabilites (converted from log-probs to probs).
         """
         return self.log_T.exp()
 
-    def log_prob(self, X):
+    def log_prob(self, X: PackedSequence) -> float:
         """
         Computes the log likelihood of the data X given the model.
 
@@ -212,13 +225,20 @@ class HiddenMarkovModel(Model):
 
         Returns the logprob of the data, not including the prior in the
         calculation.
+
+        :param X: PackedSequence containing observations
+        :returns: log probability of observations
         """
         return self.filter(X).logsumexp(1).sum(0)
 
-    def sample(self, n_seq, n_obs):
+    def sample(self, n_seq: int, n_obs) -> PackedSequence:
         """
         Draws n_seq samples from the HMM. All sequences will have length
         num_obs. The returned samples are packed.
+
+        :param n_seq: Number of samples (sequences).
+        :param n_obs: Number of observations in each sample (i.e. sequence length)
+        :returns:  PackedSequence corresponding to hmm samples.
         """
         test_sample = self.states[0].sample()
         shape = [n_seq, n_obs] + list(test_sample.shape)[1:]
@@ -230,7 +250,7 @@ class HiddenMarkovModel(Model):
             self.T0.unsqueeze(0).expand(n_seq, -1), 1).squeeze()
         for t in range(1, n_obs):
             states[:, t] = torch.multinomial(
-                self.T[states[:, t-1], :], 1).squeeze()
+                self.T[states[:, t - 1], :], 1).squeeze()
 
         # Sample the emissions
         for i, s in enumerate(self.states):
@@ -247,7 +267,7 @@ class HiddenMarkovModel(Model):
             batch_first=True)
         return packed_obs, packed_states
 
-    def _emission_ll(self, X):
+    def _emission_ll(self, X: Tensor) -> Tensor:
         """
         Computes the log-probability of every observation given the states.
         The returned ll has the same shape as the packed data.
@@ -258,7 +278,7 @@ class HiddenMarkovModel(Model):
             ll[:, i] = s.log_prob(X.data)
         return ll
 
-    def filter(self, X):
+    def filter(self, X: PackedSequence) -> Tensor:
         """
         Compute the log posterior distribution over the last state in
         each sequence--given all the data in each sequence.
@@ -288,9 +308,9 @@ class HiddenMarkovModel(Model):
         f_ll_unpacked, lengths = pad_packed_sequence(f_ll_packed,
                                                      batch_first=True)
 
-        return f_ll_unpacked[torch.arange(f_ll_unpacked.size(0)), lengths-1]
+        return f_ll_unpacked[torch.arange(f_ll_unpacked.size(0)), lengths - 1]
 
-    def predict(self, X):
+    def predict(self, X: PackedSequence) -> Tuple[Tensor, Tensor]:
         """
         Compute the posterior distributions over the next (future) states for
         each sequence in X. Predicts 1 step into the future for each sequence.
@@ -313,17 +333,17 @@ class HiddenMarkovModel(Model):
         we iterate through time across all the packed data.
         """
         self.forward_ll[0:self.batch_sizes[0]] = (
-            self.log_T0 + self.obs_ll_full[0:self.batch_sizes[0]])
+                self.log_T0 + self.obs_ll_full[0:self.batch_sizes[0]])
 
         idx = 0
         for step, prev_size in enumerate(self.batch_sizes[:-1]):
             start = idx
             mid = start + prev_size
-            mid_sub = start + self.batch_sizes[step+1]
-            end = mid + self.batch_sizes[step+1]
+            mid_sub = start + self.batch_sizes[step + 1]
+            end = mid + self.batch_sizes[step + 1]
             self.forward_ll[mid:end] = (
-                self._belief_prop_sum(self.forward_ll[start:mid_sub]) +
-                self.obs_ll_full[mid:end])
+                    self._belief_prop_sum(self.forward_ll[start:mid_sub]) +
+                    self.obs_ll_full[mid:end])
             idx = mid
 
     def _backward(self):
@@ -337,24 +357,24 @@ class HiddenMarkovModel(Model):
         start[1:] = torch.cumsum(self.batch_sizes[:-1], 0)
         end = torch.cumsum(self.batch_sizes, 0)
 
-        self.backward_ll[start[T-1]:end[T-1]] = (
-            torch.ones([self.batch_sizes[T-1], len(self.states)],
+        self.backward_ll[start[T - 1]:end[T - 1]] = (
+            torch.ones([self.batch_sizes[T - 1], len(self.states)],
                        device=self.device).float())
 
-        for t in range(T-1, 0, -1):
-            self.backward_ll[start[t-1]:start[t-1] +
-                             self.batch_sizes[t]] = self._belief_prop_sum(
+        for t in range(T - 1, 0, -1):
+            self.backward_ll[start[t - 1]:start[t - 1] +
+                                          self.batch_sizes[t]] = self._belief_prop_sum(
                 self.backward_ll[start[t]:end[t]] +
                 self.obs_ll_full[start[t]:end[t]])
 
-            if self.batch_sizes[t] < self.batch_sizes[t-1]:
-                self.backward_ll[start[t-1] +
-                                 self.batch_sizes[t]: end[t-1]] = (
-                    torch.ones([self.batch_sizes[t-1] - self.batch_sizes[t],
+            if self.batch_sizes[t] < self.batch_sizes[t - 1]:
+                self.backward_ll[start[t - 1] +
+                                 self.batch_sizes[t]: end[t - 1]] = (
+                    torch.ones([self.batch_sizes[t - 1] - self.batch_sizes[t],
                                 len(self.states)],
                                device=self.device).float())
 
-    def decode(self, X):
+    def decode(self, X: PackedSequence) -> Tuple[PackedSequence, PackedSequence]:
         """
         Find the most likely state sequences corresponding to each observation
         in X. Note the state assignments within a sequence are not independent
@@ -363,9 +383,8 @@ class HiddenMarkovModel(Model):
 
         In essence, this finds the state assignments for each observation.
 
-        :param X: packed sequence/observation data
-        :type X: packed sequence
-        :returns: two packed sequence tensors. The first contains state labels,
+        :param X: Packed observation data
+        :returns: Two packed sequences. The first contains state labels,
             the second contains the previous state label (i.e., the path).
         """
         self._init_viterbi(X)
@@ -382,7 +401,7 @@ class HiddenMarkovModel(Model):
 
         return ss_packed, path_packed
 
-    def smooth(self, X):
+    def smooth(self, X: PackedSequence) -> PackedSequence:
         """
         Compute the smoothed posterior probability over each state for the
         sequences in X. Unlike decode, this computes the best state assignment
@@ -391,8 +410,7 @@ class HiddenMarkovModel(Model):
         Note, that in general, using this to compute the state labels for
         the observations in a sequence is incorrect! Use decode instead!
 
-        :param X: packed sequence/observation data
-        :type X: packed sequence
+        :param X: packed observation data
         :returns: a packed sequence tensors.
         """
         self._init_forw_back(X)
@@ -418,7 +436,7 @@ class HiddenMarkovModel(Model):
             self.log_T.unsqueeze(0).expand(scores.shape[0], -1, -1), 1)
         return mv.squeeze(1), mi.squeeze(1)
 
-    def _belief_prop_sum(self, scores):
+    def _belief_prop_sum(self, scores: Tensor) -> Tensor:
         """
         Propagates the scores over transition matrix. Returns the indices and
         values of the max for each state.
@@ -431,8 +449,8 @@ class HiddenMarkovModel(Model):
             self.log_T.unsqueeze(0).expand(scores.shape[0], -1, -1), 1)
         return s.squeeze(1)
 
-    def fit(self, X, max_steps=500, epsilon=1e-3, randomize_first=False,
-            restarts=10, rand_fun=None, **kwargs):
+    def fit(self, X: PackedSequence, max_steps: int=500, epsilon: float=1e-3, randomize_first: bool=False,
+            restarts: int=10, rand_fun: Callable=None, **kwargs):
         """
         Learn new model parameters from X using hard expectation maximization
         (viterbi training).
@@ -457,6 +475,15 @@ class HiddenMarkovModel(Model):
 
         The model returns a flag specifying if the best fitting model (across
         the restarts) converged.
+
+        :param X: Sequences.
+        :param max_steps: Maximum number of iterations to allow viterbi to run if it does not converge before then
+        :param epsilon:
+        :param randomize_first:
+        :param restarts: Number of random restarts.
+        :param rand_func:
+        :param \**kwargs: arguments for self._viterbi_training
+        :returns:
         """
         best_params = None
         best_ll = float('-inf')
@@ -495,14 +522,14 @@ class HiddenMarkovModel(Model):
 
         # initialize with state starting log-priors
         self.path_scores[0:self.batch_sizes[0]] = (
-            self.log_T0 + obs_ll_full[0:self.batch_sizes[0]])
+                self.log_T0 + obs_ll_full[0:self.batch_sizes[0]])
 
         idx = 0
         for step, prev_size in enumerate(self.batch_sizes[:-1]):
             start = idx
             mid = start + prev_size
-            mid_sub = start + self.batch_sizes[step+1]
-            end = mid + self.batch_sizes[step+1]
+            mid_sub = start + self.batch_sizes[step + 1]
+            end = mid + self.batch_sizes[step + 1]
             mv, mi = self._belief_prop_max(self.path_scores[start:mid_sub])
             self.path_states[mid:end] = mi.squeeze(1)
             self.path_scores[mid:end] = mv + obs_ll_full[mid:end]
@@ -512,27 +539,27 @@ class HiddenMarkovModel(Model):
         start[1:] = torch.cumsum(self.batch_sizes[:-1], 0)
         end = torch.cumsum(self.batch_sizes, 0)
 
-        self.states_seq[start[N-1]:end[N-1]] = torch.argmax(
-            self.path_scores[start[N-1]:end[N-1]], 1)
+        self.states_seq[start[N - 1]:end[N - 1]] = torch.argmax(
+            self.path_scores[start[N - 1]:end[N - 1]], 1)
 
-        for step in range(N-1, 0, -1):
+        for step in range(N - 1, 0, -1):
             state = self.states_seq[start[step]:end[step]]
             state_prob = self.path_states[start[step]:end[step]]
             state_prob = state_prob.gather(
                 1, state.unsqueeze(0).permute(1, 0)).squeeze(1)
-            self.states_seq[start[step-1]:start[step-1] +
-                            self.batch_sizes[step]] = state_prob
+            self.states_seq[start[step - 1]:start[step - 1] +
+                                            self.batch_sizes[step]] = state_prob
 
             # since we're doing packed sequencing, we need to check if
             # any new sequences are showing up for earlier times.
             # if so, initialize them
-            if self.batch_sizes[step] > self.batch_sizes[step-1]:
+            if self.batch_sizes[step] > self.batch_sizes[step - 1]:
                 self.states_seq[
-                    start[step-1] +
-                    self.batch_sizes[step]:end[step-1]] = torch.argmax(
-                        self.path_scores[start[step-1] +
-                                         self.batch_sizes[step]:end[step-1]],
-                        1)
+                start[step - 1] +
+                self.batch_sizes[step]:end[step - 1]] = torch.argmax(
+                    self.path_scores[start[step - 1] +
+                                     self.batch_sizes[step]:end[step - 1]],
+                    1)
 
         return self.states_seq, self.path_scores
 
@@ -614,12 +641,12 @@ class HiddenMarkovModel(Model):
         M = self.log_T.shape[0]
         idx = 0
         for step, prev_size in enumerate(self.batch_sizes[:-1]):
-            next_size = self.batch_sizes[step+1]
+            next_size = self.batch_sizes[step + 1]
             start = idx
             mid = start + prev_size
             end = mid + next_size
-            pairs = (states.data[start:start+next_size] * M +
-                     states.data[mid:end]).bincount(minlength=M*M).float()
+            pairs = (states.data[start:start + next_size] * M +
+                     states.data[mid:end]).bincount(minlength=M * M).float()
             t_counts += pairs.reshape((M, M))
 
             idx = mid
@@ -659,11 +686,7 @@ class HiddenMarkovModel(Model):
         for i in range(max_steps):
             self._viterbi_training_step(X)
             if self.converged:
-                # print('converged at step %i' % i)
                 break
-
-        # print('HISTORY!')
-        # print(self.ll_history)
 
         return self.converged
 
