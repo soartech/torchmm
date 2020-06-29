@@ -467,7 +467,7 @@ class DiagNormalModel(Model):
         get sent entirely based on the priors.
 
         :param X: a N x F tensor of emissions, where N is the number of
-        emissions and F is the number of features in the Gaussian.
+            emissions and F is the number of features in the Gaussian.
 
         >>> DiagNormalModel(2).fit(torch.tensor([[ 0.5798,  2.1585],
         >>>                                      [ 0.6801,  1.2888],

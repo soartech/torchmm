@@ -6,13 +6,11 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from torch.distributions.dirichlet import Dirichlet
 
 from torchmm.base import Model
-# from torchmm.hmm import HiddenMarkovModel
 from torchmm.base import CategoricalModel
 from torchmm.utils import unpack_list
 from torchmm.utils import kmeans_init
 from torchmm.utils import kmeans
 from typing import List
-from typing import Union
 from typing import Tuple
 from typing import Callable
 
@@ -92,11 +90,16 @@ class HiddenMarkovModel(Model):
         log-probabilities to prevent underflows.
 
         :param states: State-wise models from which emissions are sampled
-        :param T0: 1xS tensor. Probability of starting in each state. Should sum to 1.
-        :param T: SxS tensor. Probability of transitioning between states. Rows should sum to 1.
-        :param T0_prior: 1xS tensor. Dirichlet prior (counts) for start probabilities
-        :param T_prior: SxS tensor. Dirichlet prior (counts) for start probabilities
-        :param device: Which hardware device to use for tensor calculations (probably 'cpu' or 'gpu')
+        :param T0: 1xS tensor. Probability of starting in each state. Should
+            sum to 1.
+        :param T: SxS tensor. Probability of transitioning between states. Rows
+            should sum to 1.
+        :param T0_prior: 1xS tensor. Dirichlet prior (counts) for start
+            probabilities
+        :param T_prior: SxS tensor. Dirichlet prior (counts) for start
+            probabilities
+        :param device: Which hardware device to use for tensor calculations
+            (probably 'cpu' or 'gpu')
 
         >>> good_T0 = torch.tensor([1.0, 0.0])
         >>> good_T = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
@@ -246,7 +249,8 @@ class HiddenMarkovModel(Model):
         num_obs. The returned samples are packed.
 
         :param n_seq: Number of samples (sequences).
-        :param n_obs: Number of observations in each sample (i.e. sequence length)
+        :param n_obs: Number of observations in each sample (i.e. sequence
+            length)
         :returns:  PackedSequence corresponding to hmm samples.
         """
         test_sample = self.states[0].sample()
@@ -342,7 +346,7 @@ class HiddenMarkovModel(Model):
         we iterate through time across all the packed data.
         """
         self.forward_ll[0:self.batch_sizes[0]] = (
-                self.log_T0 + self.obs_ll_full[0:self.batch_sizes[0]])
+            self.log_T0 + self.obs_ll_full[0:self.batch_sizes[0]])
 
         idx = 0
         for step, prev_size in enumerate(self.batch_sizes[:-1]):
@@ -351,8 +355,8 @@ class HiddenMarkovModel(Model):
             mid_sub = start + self.batch_sizes[step + 1]
             end = mid + self.batch_sizes[step + 1]
             self.forward_ll[mid:end] = (
-                    self._belief_prop_sum(self.forward_ll[start:mid_sub]) +
-                    self.obs_ll_full[mid:end])
+                self._belief_prop_sum(self.forward_ll[start:mid_sub]) +
+                self.obs_ll_full[mid:end])
             idx = mid
 
     def _backward(self):
@@ -372,8 +376,8 @@ class HiddenMarkovModel(Model):
 
         for t in range(T - 1, 0, -1):
             self.backward_ll[start[t - 1]:start[t - 1] +
-                                          self.batch_sizes[
-                                              t]] = self._belief_prop_sum(
+                             self.batch_sizes[
+                t]] = self._belief_prop_sum(
                 self.backward_ll[start[t]:end[t]] +
                 self.obs_ll_full[start[t]:end[t]])
 
@@ -385,7 +389,7 @@ class HiddenMarkovModel(Model):
                                device=self.device).float())
 
     def decode(self, X: PackedSequence) -> Tuple[
-        PackedSequence, PackedSequence]:
+            PackedSequence, PackedSequence]:
         """
         Find the most likely state sequences corresponding to each observation
         in X. Note the state assignments within a sequence are not independent
@@ -491,13 +495,15 @@ class HiddenMarkovModel(Model):
         the restarts) converged.
 
         :param X: Sequences/observations
-        :param max_steps: Maximum number of iterations to allow viterbi to run if it does not converge before then
+        :param max_steps: Maximum number of iterations to allow viterbi to run
+            if it does not converge before then
         :param epsilon: Convergence criteria (log-likelihood delta)
         :param randomize_first: Randomize on the first iteration (restart 0)
         :param restarts: Number of random restarts.
         :param rand_func: Callable F(self, data) for custom randomization
-        :param \**kwargs: arguments for self._viterbi_training
-        :returns: Boolean indicating whether or not any of the restarts converged
+        :param \\**kwargs: arguments for self._viterbi_training
+        :returns: Boolean indicating whether or not any of the restarts
+            converged
         """
         best_params = None
         best_ll = float('-inf')
@@ -536,7 +542,7 @@ class HiddenMarkovModel(Model):
 
         # initialize with state starting log-priors
         self.path_scores[0:self.batch_sizes[0]] = (
-                self.log_T0 + obs_ll_full[0:self.batch_sizes[0]])
+            self.log_T0 + obs_ll_full[0:self.batch_sizes[0]])
 
         idx = 0
         for step, prev_size in enumerate(self.batch_sizes[:-1]):
@@ -562,16 +568,16 @@ class HiddenMarkovModel(Model):
             state_prob = state_prob.gather(
                 1, state.unsqueeze(0).permute(1, 0)).squeeze(1)
             self.states_seq[start[step - 1]:start[step - 1] +
-                                            self.batch_sizes[
-                                                step]] = state_prob
+                            self.batch_sizes[
+                step]] = state_prob
 
             # since we're doing packed sequencing, we need to check if
             # any new sequences are showing up for earlier times.
             # if so, initialize them
             if self.batch_sizes[step] > self.batch_sizes[step - 1]:
                 self.states_seq[
-                start[step - 1] +
-                self.batch_sizes[step]:end[step - 1]] = torch.argmax(
+                    start[step - 1] +
+                    self.batch_sizes[step]:end[step - 1]] = torch.argmax(
                     self.path_scores[start[step - 1] +
                                      self.batch_sizes[step]:end[step - 1]],
                     1)
