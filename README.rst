@@ -1,4 +1,4 @@
-.. image:: https://github.com/soartech/torchmm/blob/master/docs/logo/TorCHmm.png?raw=true
+.. image:: https://github.com/soartech/torchmm/blob/master/docs/logo/TorCHmm.png
    :height: 64 px
    :width: 64 px
    :alt: TorCHmM Logo
