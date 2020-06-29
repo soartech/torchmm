@@ -38,3 +38,5 @@ substitute the appropriate git url in the command above.
 
 Once the package has been installed, examples of how to use it can be found in
 the `benchmarks` folder. 
+
+DISTRIBUTION STATEMENT A. Approved for public release: distribution unlimited. 
