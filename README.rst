@@ -35,3 +35,6 @@ The package can be installed via pip directly from git. To do this run the follo
     pip install -U git+https://<GIT URL>@master
 
 substitute the appropriate git url in the command above.
+
+Once the package has been installed, examples of how to use it can be found in
+the `benchmarks` folder. 
