@@ -62,10 +62,9 @@ class HiddenMarkovModel(Model):
     this class and does some automatic data packing and unpacking.
     """
 
-    def __init__(self, states: List[Model], T0: Tensor = None, T: Tensor = None,
-                 T0_prior: Tensor = None,
-                 T_prior: Tensor = None,
-                 device: str = "cpu"):
+    def __init__(self, states: List[Model], T0: Tensor = None, T: Tensor =
+                 None, T0_prior: Tensor = None, T_prior: Tensor = None, device:
+                 str = "cpu"):
         """
         Constructor for the HMM accepts.
 
