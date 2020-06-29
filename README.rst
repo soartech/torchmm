@@ -1,6 +1,6 @@
 .. image:: https://github.com/soartech/torchmm/blob/master/docs/logo/TorCHmm.png
-   :height: 64 px
-   :width: 64 px
+   :height: 32 px
+   :width: 32 px
    :alt: TorCHmM Logo
    :align: left
 
