@@ -15,10 +15,23 @@ TorCHmM
      :target: https://chris.maclellan.hq-git.soartech.com/TorCHmM/coverage/
      :alt: Coverage Report
 
-A PyTorch implementation of various hidden Markov model inference and learning algorithms.
+A PyTorch implementation of various hidden Markov model inference and learning
+algorithms. The library's primary purpose is to provide a means of fitting
+hidden Markov models using GPU hardware. The library provides a modular
+interface for fitting HMM's with custom emission models; it has built-in
+emission models for discrete and Gaussian outputs. The library also supports
+regularization, the ability to fit the model with multiple random restarts, and
+supports PyTorch's packed list input represention (so sequences can having
+varying length).
 
-Documentation: https://chris.maclellan.hq-git.soartech.com/TorCHmM
+API documentation can be found at: https://chris.maclellan.hq-git.soartech.com/TorCHmM
+If this link is unavailable, then the documentation can be built locally. To
+build a local copy of the documentation, go to the `docs` folder and run the
+commands `pip install -r doc-requirements.txt` and `make html` to build an HTML
+copy of the docs. These docs can then be accessed locadlly at `_build/html/`.
 
-You can install the code directly to PIP with the following command:
+The package can be installed via pip directly from git. To do this run the following command:
 
-    pip install -U git+https://hq-git.soartech.com/chris.maclellan/TorCHmM@master
+    pip install -U git+https://<GIT URL>@master
+
+substitute the appropriate git url in the command above.
